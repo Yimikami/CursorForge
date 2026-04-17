@@ -1,9 +1,27 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, computed, watch } from "vue";
 import { ProxyService } from "../../bindings/cursorforge/internal/bridge";
-import { Window, Events } from "@wailsio/runtime";
+import { Window, Events, Browser, System } from "@wailsio/runtime";
 import OpenAIMark from "./logos/OpenAIMark.vue";
 import AnthropicMark from "./logos/AnthropicMark.vue";
+
+const APP_VERSION = "0.1.0";
+const GITHUB_REPO = "Yimikami/cursorforge";
+const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
+
+// Label shown in the footer next to the version. System.IsWindows/IsMac/
+// IsLinux are synchronous helpers injected by the Wails runtime at load
+// time, so we can resolve the OS name without awaiting a round-trip to Go.
+const OS_LABEL = (() => {
+  try {
+    if (System.IsWindows()) return "Windows build";
+    if (System.IsMac()) return "macOS build";
+    if (System.IsLinux()) return "Linux build";
+  } catch {
+    /* runtime not ready (dev tools preview) — fall through */
+  }
+  return "Desktop build";
+})();
 
 function winMinimise() {
   Window.Minimise();
@@ -273,8 +291,76 @@ async function toggleCAInstall() {
   }
 }
 
-function checkForUpdates() {
-  alert("You are on the latest version (v0.1.0).");
+function openRepo() {
+  Browser.OpenURL(GITHUB_URL).catch((e) => {
+    alert(`Could not open browser: ${e?.message ?? String(e)}`);
+  });
+}
+
+// Parse a semver-ish tag ("v0.1.0", "0.1.0", "0.1.0-rc1") into comparable
+// numeric triple. Unknown parts default to 0 so pre-release suffixes just
+// fall back to their numeric prefix, which is fine for a coarse check.
+function parseVersion(tag: string): [number, number, number] {
+  const cleaned = tag.trim().replace(/^v/i, "").split(/[-+]/)[0] ?? "";
+  const parts = cleaned.split(".").map((p) => parseInt(p, 10));
+  return [parts[0] || 0, parts[1] || 0, parts[2] || 0];
+}
+
+function isNewer(remote: string, local: string): boolean {
+  const r = parseVersion(remote);
+  const l = parseVersion(local);
+  for (let i = 0; i < 3; i++) {
+    if (r[i] > l[i]) return true;
+    if (r[i] < l[i]) return false;
+  }
+  return false;
+}
+
+const updateBusy = ref(false);
+
+async function checkForUpdates() {
+  if (updateBusy.value) return;
+  updateBusy.value = true;
+  try {
+    const resp = await fetch(
+      `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+      { headers: { Accept: "application/vnd.github+json" } },
+    );
+    if (resp.status === 404) {
+      alert(`No releases published yet.\nYou are running v${APP_VERSION}.`);
+      return;
+    }
+    if (!resp.ok) {
+      throw new Error(`GitHub returned HTTP ${resp.status}`);
+    }
+    const data = (await resp.json()) as {
+      tag_name?: string;
+      name?: string;
+      html_url?: string;
+    };
+    const tag = data.tag_name ?? "";
+    const htmlURL = data.html_url ?? `${GITHUB_URL}/releases/latest`;
+    if (!tag) {
+      alert(`You are running v${APP_VERSION}. Could not read latest tag.`);
+      return;
+    }
+    if (isNewer(tag, APP_VERSION)) {
+      const open = confirm(
+        `A new version is available.\n\nInstalled: v${APP_VERSION}\nLatest: ${tag}\n\nOpen the release page in your browser?`,
+      );
+      if (open) {
+        Browser.OpenURL(htmlURL).catch((e) => {
+          alert(`Could not open browser: ${e?.message ?? String(e)}`);
+        });
+      }
+    } else {
+      alert(`You are on the latest version (v${APP_VERSION}).`);
+    }
+  } catch (e: any) {
+    alert(`Update check failed: ${e?.message ?? String(e)}`);
+  } finally {
+    updateBusy.value = false;
+  }
 }
 
 const filteredAdapters = computed(() =>
@@ -462,6 +548,19 @@ onBeforeUnmount(() => {
         </button>
 
         <div class="win-controls">
+          <button
+            class="win-btn"
+            @click="openRepo"
+            title="Open GitHub repository"
+            aria-label="Open GitHub repository"
+          >
+            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+              />
+            </svg>
+          </button>
           <button class="win-btn" @click="winMinimise" title="Minimise">
             <svg viewBox="0 0 12 12" width="10" height="10">
               <line
@@ -621,12 +720,17 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="footer">
-        <span>v0.1.0</span>
+        <span>v{{ APP_VERSION }}</span>
         <span class="sep">·</span>
-        <span>Windows build</span>
+        <span>{{ OS_LABEL }}</span>
         <span class="footer-spacer" />
-        <button class="link-btn" @click="checkForUpdates">
-          Check for updates
+        <button class="link-btn" @click="openRepo">GitHub</button>
+        <button
+          class="link-btn"
+          @click="checkForUpdates"
+          :disabled="updateBusy"
+        >
+          {{ updateBusy ? "Checking…" : "Check for updates" }}
         </button>
       </div>
     </main>
@@ -1547,6 +1651,12 @@ onBeforeUnmount(() => {
 .link-btn:hover {
   color: #fafafa;
   background: #18181b;
+}
+.link-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+  background: transparent;
+  color: #71717a;
 }
 .icn {
   display: inline-block;

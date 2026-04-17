@@ -88,7 +88,7 @@ picker into "BYOK not allowed" and hide the injected models.
 
 ```powershell
 # 1. Clone
-git clone https://github.com/<you>/cursorforge.git
+git clone https://github.com/Yimikami/cursorforge.git
 cd cursorforge
 
 # 2. Frontend deps

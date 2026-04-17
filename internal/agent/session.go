@@ -100,15 +100,61 @@ type StoredToolCall struct {
 }
 
 type sessionStore struct {
-	mu          sync.RWMutex
-	byID        map[string]*Session
-	byConv      map[string]*Session
-	lastPut     *Session               // fallback when RunSSE ids don't match any BidiAppend id
-	lastConv    *Session               // most recent session with UserText, for continuation rounds
-	history     map[string][]*ConvTurn // conversation_id -> turns in arrival order
-	planEmitted map[string]bool        // conversation_id -> did we already open Cursor's Plan panel?
-	planByConv  map[string]*PlanState  // conversation_id -> authoritative plan state
+	mu         sync.RWMutex
+	byID       map[string]*Session
+	byConv     map[string]*Session
+	lastPut    *Session  // fallback when RunSSE ids don't match any BidiAppend id
+	lastConv   *Session  // most recent session with UserText, for continuation rounds
+	lastConvAt time.Time // when lastConv was last updated — bounds the continuation-fallback window
+	// droppedIDConv remembers request_id → conversation_id for sessions
+	// we've already finished with. Cursor sometimes retries RunSSE with a
+	// recycled request_id after we've DropSession'd it; without this map
+	// the retry would miss byID and the lastConv fallback could splice
+	// the request into whichever chat happened to be active most recently.
+	// Looking up the conversation_id here lets the retry rejoin its OWN
+	// chat instead of cross-wiring to a sibling session.
+	droppedIDConv map[string]string
+	history       map[string][]*ConvTurn // conversation_id -> turns in arrival order
+	planEmitted   map[string]bool        // conversation_id -> did we already open Cursor's Plan panel?
+	planByConv    map[string]*PlanState  // conversation_id -> authoritative plan state
 }
+
+// lastConvSafeFallback returns lastConv only when we can be reasonably sure
+// the incoming RunSSE really belongs to it. In particular we refuse the
+// fallback when more than one conversation has been active recently — in
+// that case a request we can't identify could belong to either chat, and
+// splicing it into the "most recent" one is a silent data-corruption
+// hazard (prompt history from chat A persisted under chat B's id).
+//
+// Caller must hold s.mu (read or write lock).
+func (s *sessionStore) lastConvSafeFallback() *Session {
+	if s.lastConv == nil || s.lastConv.UserText == "" {
+		return nil
+	}
+	if !s.lastConvAt.IsZero() && time.Since(s.lastConvAt) > lastConvMaxAge {
+		return nil
+	}
+	// Count distinct conversations that still carry a live user prompt.
+	// byConv holds at most one entry per conversation_id (re-puts overwrite),
+	// so iterating gives a natural distinct count. More than one ⇒ ambiguous.
+	seen := 0
+	for convID, sess := range s.byConv {
+		if sess == nil || sess.UserText == "" || convID == "" {
+			continue
+		}
+		seen++
+		if seen > 1 {
+			return nil
+		}
+	}
+	return s.lastConv
+}
+
+// lastConvMaxAge bounds how long after the last BidiAppend we still treat
+// lastConv as a valid continuation target. Long enough to cover normal
+// reconnect storms, short enough that a user switching chats doesn't get
+// their new chat glued onto the previous one.
+const lastConvMaxAge = 2 * time.Minute
 
 // PlanState is the conversation-scoped plan snapshot. Cursor does not ship
 // the plan back inside BidiAppend (it lives purely in our state), so we have
@@ -272,6 +318,7 @@ func (s *sessionStore) Put(sess *Session) {
 	s.lastPut = sess
 	if sess.UserText != "" {
 		s.lastConv = sess
+		s.lastConvAt = time.Now()
 	}
 }
 
@@ -284,6 +331,14 @@ func (s *sessionStore) Get(id string) *Session {
 	if sess := s.byConv[id]; sess != nil {
 		return sess
 	}
+	// Retried RunSSE with a request_id we've already dropped: re-attach to
+	// its original conversation rather than falling off to lastConv (which
+	// could now point at a different chat entirely).
+	if conv, ok := s.droppedIDConv[id]; ok {
+		if sess := s.byConv[conv]; sess != nil {
+			return sess
+		}
+	}
 	return nil
 }
 
@@ -291,6 +346,16 @@ func (s *sessionStore) Drop(id string) {
 	s.mu.Lock()
 	if sess := s.byID[id]; sess != nil {
 		delete(s.byID, id)
+		// Remember the conversation this request_id belonged to so any
+		// later retry/reconnect finds its way back to the correct chat
+		// instead of the most-recent lastConv (which might be a SIBLING
+		// conversation the user has since switched to).
+		if conv := sess.ConversationID; conv != "" {
+			if s.droppedIDConv == nil {
+				s.droppedIDConv = map[string]string{}
+			}
+			s.droppedIDConv[id] = conv
+		}
 		// Keep byConv mapping alive so follow-up RunSSE requests for the
 		// same conversation (different request_id) can still find context.
 		if s.lastPut == sess {
@@ -395,13 +460,13 @@ func WaitForSession(ctx context.Context, id string) *Session {
 		}
 		if time.Now().After(deadline) {
 			// Continuation / reconnect: we have no matching session (or
-			// only a heartbeat skeleton with no UserText). Clone the most
-			// recent session that DID carry user text so the RunSSE retry
-			// can resume instead of erroring out.
+			// only a heartbeat skeleton with no UserText). Only clone the
+			// most recent conversation when we can be confident the request
+			// really belongs there (recent, no sibling chat active).
 			store.mu.RLock()
-			fallback := store.lastConv
+			fallback := store.lastConvSafeFallback()
 			store.mu.RUnlock()
-			if fallback != nil && fallback.UserText != "" {
+			if fallback != nil {
 				clone := *fallback
 				clone.RequestID = id
 				// Clear the McpMap — it's request-scoped state rebuilt on
@@ -419,9 +484,9 @@ func WaitForSession(ctx context.Context, id string) *Session {
 				return sess
 			}
 			store.mu.RLock()
-			fallback := store.lastConv
+			fallback := store.lastConvSafeFallback()
 			store.mu.RUnlock()
-			if fallback != nil && fallback.UserText != "" {
+			if fallback != nil {
 				clone := *fallback
 				clone.RequestID = id
 				clone.McpMap = nil

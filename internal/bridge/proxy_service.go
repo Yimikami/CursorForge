@@ -210,9 +210,12 @@ func (s *ProxyService) StartProxy() (ProxyState, error) {
 		s.state.LastError = "proxy started but couldn't update system settings: " + err.Error()
 		return s.state, err
 	}
+	// Non-fatal start errors go into warnings so the caller still gets a
+	// "Running" state for the parts that did succeed — but the UI can
+	// surface the partial failures instead of reporting a clean start.
+	var warnings []string
 	if err := cursor.ApplyCursorTweaks(s.state.ListenAddr); err != nil {
-		// Non-fatal — system proxy alone might be enough; just record.
-		s.state.LastError = "Cursor settings.json tweak failed: " + err.Error()
+		warnings = append(warnings, "Cursor settings.json tweak failed: "+err.Error())
 	}
 	// Inject the synthetic Pro session into Cursor's SQLite. Cursor reads
 	// these auth keys at startup and renders "logged-in Pro user" UI when
@@ -223,7 +226,7 @@ func (s *ProxyService) StartProxy() (ProxyState, error) {
 	// our fake JWT after disabling the proxy and Cursor refuses to log in
 	// against the real api2.cursor.sh.
 	if err := cursor.InjectFakeProUser(s.authBackupPath()); err != nil {
-		s.state.LastError = "Cursor SQLite Pro inject failed: " + err.Error()
+		warnings = append(warnings, "Cursor SQLite Pro inject failed: "+err.Error())
 	}
 	if adapters := s.gatewayAdapters(); len(adapters) > 0 {
 		// Pin every Cursor feature (composer / cmd-K / agent / etc.) at the
@@ -231,13 +234,20 @@ func (s *ProxyService) StartProxy() (ProxyState, error) {
 		// selection from SQLite and renders nothing because the cached id
 		// no longer matches our AvailableModels response.
 		if err := cursor.ForceModelSelection(adapters[0].StableID()); err != nil {
-			s.state.LastError = "Cursor SQLite model pin failed: " + err.Error()
+			warnings = append(warnings, "Cursor SQLite model pin failed: "+err.Error())
 		}
 	}
 	s.proxy = srv
 	s.state.Running = true
 	s.state.StartedAt = time.Now().Unix()
-	s.state.LastError = ""
+	if len(warnings) > 0 {
+		// Preserve every non-fatal failure so the UI can surface them —
+		// clearing LastError here would have hidden e.g. a failed
+		// settings.json tweak behind a "clean start" banner.
+		s.state.LastError = "Partial start: " + strings.Join(warnings, "; ")
+	} else {
+		s.state.LastError = ""
+	}
 	s.fireState()
 	return s.state, nil
 }

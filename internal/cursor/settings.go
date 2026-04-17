@@ -178,17 +178,25 @@ func ApplyCursorTweaks(proxyAddr string) error {
 		return err
 	}
 
-	var bk tweakBackup
-	bk.HTTPProxy, bk.HasHTTPProxy = m["http.proxy"]
-	bk.HTTPProxyStrictSSL, bk.HasHTTPProxyStrictSSL = m["http.proxyStrictSSL"]
-	bk.HTTPProxySupport, bk.HasHTTPProxySupport = m["http.proxySupport"]
-	bk.HTTPProxyAuthHelper, bk.HasHTTPProxyAuthHelper = m["http.experimental.systemCertificatesV2"]
-	bk.HTTPCompatHTTP1, bk.HasHTTPCompatHTTP1 = m["cursor.general.useHttp1"]
-	bk.DisableHTTP2, bk.HasDisableHTTP2 = m["cursor.general.disableHttp2"]
-	bk.ProxyKerberos, bk.HasProxyKerberos = m["http.proxyKerberosServicePrincipal"]
-
-	if err := saveBackup(bk); err != nil {
-		return err
+	// Only snapshot when no backup exists yet. If the app crashed while our
+	// tweaks were active, settings.json is already mutated — re-snapshotting
+	// it would permanently overwrite the user's pristine values with our
+	// overrides, and a later Revert would be a no-op. The file is removed
+	// on successful Revert, so a clean cycle still re-snapshots next time.
+	if p := backupPath(); p != "" {
+		if _, statErr := os.Stat(p); os.IsNotExist(statErr) {
+			var bk tweakBackup
+			bk.HTTPProxy, bk.HasHTTPProxy = m["http.proxy"]
+			bk.HTTPProxyStrictSSL, bk.HasHTTPProxyStrictSSL = m["http.proxyStrictSSL"]
+			bk.HTTPProxySupport, bk.HasHTTPProxySupport = m["http.proxySupport"]
+			bk.HTTPProxyAuthHelper, bk.HasHTTPProxyAuthHelper = m["http.experimental.systemCertificatesV2"]
+			bk.HTTPCompatHTTP1, bk.HasHTTPCompatHTTP1 = m["cursor.general.useHttp1"]
+			bk.DisableHTTP2, bk.HasDisableHTTP2 = m["cursor.general.disableHttp2"]
+			bk.ProxyKerberos, bk.HasProxyKerberos = m["http.proxyKerberosServicePrincipal"]
+			if err := saveBackup(bk); err != nil {
+				return err
+			}
+		}
 	}
 
 	m["http.proxy"] = "http://" + proxyAddr

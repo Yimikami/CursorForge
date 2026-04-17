@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	agentv1 "cursorforge/internal/protocodec/gen/agent/v1"
@@ -16,6 +17,22 @@ import (
 
 	"google.golang.org/protobuf/proto"
 )
+
+// execSeqCounter hands out monotonically increasing ExecServerMessage.Id
+// values. Previously we derived seq from (round*10 + len(result.ToolCalls) + 1)
+// — but len(result.ToolCalls) is constant across the inner loop, so every
+// tool call in a single round received the SAME seq. That made seqAlias
+// and shellAccum collide: a second tool call's shell Start event could
+// land on the first call's accumulator, and backgrounded shell events
+// arriving late could wake the wrong pending waiter.
+//
+// Starting at 1 so a zero-valued seq can be distinguished from "real" ids
+// during debugging.
+var execSeqCounter atomic.Uint32
+
+func nextExecSeq() uint32 {
+	return execSeqCounter.Add(1)
+}
 
 // lockedWriter serialises all frame writes against a single mutex so the
 // background keepalive goroutine and the main response loop can share one
@@ -345,7 +362,12 @@ func HandleRunSSE(
 			// field (WriteArgs / ReadArgs / LsArgs / GrepArgs / DeleteArgs).
 			// Cursor never ACKs back unless this frame lands.
 			execID := newExecID(execToolName(pc.Name))
-			seq := uint32(round*10 + len(result.ToolCalls) + 1)
+			// Use a process-wide monotonic counter so every tool_call —
+			// regardless of round, parallel tools in the same round, or
+			// late shell events backing up in the queue — keys its own
+			// seqAlias/shellAccum entry. See nextExecSeq doc for the bug
+			// this replaces.
+			seq := nextExecSeq()
 			waitCh := registerToolWait(pc.ID)
 			registerExecIDAlias(execID, seq, pc.ID)
 			if err := writeExecRequest(w, execID, seq, pc, tc); err != nil {
