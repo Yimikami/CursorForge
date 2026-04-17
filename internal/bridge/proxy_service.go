@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -302,19 +303,14 @@ func (s *ProxyService) StartProxy() (ProxyState, error) {
 	_, _ = readConfig(s.cfgDir)
 	s.state.ListenAddr = defaultListenAddr
 	listen := defaultListenAddr
-	resolver := func() (providerType, baseURL, apiKey, model string, opts agent.AdapterOpts, ok bool) {
-		ads := s.gatewayAdapters()
-		if len(ads) == 0 {
-			return "", "", "", "", agent.AdapterOpts{}, false
+		resolver := func() []agent.AdapterTarget {
+			ads := s.gatewayAdapters()
+			out := make([]agent.AdapterTarget, 0, len(ads))
+			for _, a := range ads {
+				out = append(out, agent.AdapterTargetFromRelay(a))
+			}
+			return out
 		}
-		a := ads[0]
-		return a.Type, a.BaseURL, a.APIKey, a.ModelID, agent.AdapterOpts{
-			ReasoningEffort: a.ReasoningEffort,
-			ServiceTier:     a.ServiceTier,
-			MaxOutputTokens: a.MaxOutputTokens,
-			ThinkingBudget:  a.ThinkingBudget,
-		}, true
-	}
 	srv, err := mitm.New(listen, s.ca, s.gateway, resolver)
 	if err != nil {
 		s.state.LastError = err.Error()
@@ -501,42 +497,63 @@ func (s *ProxyService) TestAdapter(index int) (ModelAdapterConfig, error) {
 }
 
 func runAdapterPing(a ModelAdapterConfig) string {
+	if a.ModelID == "" {
+		return "missing model id"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	msg, err := runAdapterInferenceTest(ctx, a)
+	if err != nil {
+		return err.Error()
+	}
+	if strings.TrimSpace(msg) == "" {
+		return "ok"
+	}
+	return "ok"
+}
+
+func runAdapterInferenceTest(ctx context.Context, a ModelAdapterConfig) (string, error) {
 	base := strings.TrimRight(a.BaseURL, "/")
 	var url string
 	req := (*http.Request)(nil)
 	var err error
 	switch strings.ToLower(a.Type) {
 	case "anthropic":
-		url = base + "/v1/models"
-		req, err = http.NewRequest(http.MethodGet, url, nil)
+		url = base + "/v1/messages"
+		payload := strings.NewReader(`{"model":` + strconv.Quote(a.ModelID) + `,"max_tokens":16,"messages":[{"role":"user","content":"Reply with OK only."}]}`)
+		req, err = http.NewRequestWithContext(ctx, http.MethodPost, url, payload)
 		if err != nil {
-			return "bad URL: " + err.Error()
+			return "", errors.New("bad URL: " + err.Error())
 		}
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("x-api-key", a.APIKey)
 		req.Header.Set("anthropic-version", "2023-06-01")
 	default:
-		url = base + "/models"
-		req, err = http.NewRequest(http.MethodGet, url, nil)
+		url = base + "/chat/completions"
+		payload := strings.NewReader(`{"model":` + strconv.Quote(a.ModelID) + `,"messages":[{"role":"user","content":"Reply with OK only."}],"max_tokens":16}`)
+		req, err = http.NewRequestWithContext(ctx, http.MethodPost, url, payload)
 		if err != nil {
-			return "bad URL: " + err.Error()
+			return "", errors.New("bad URL: " + err.Error())
 		}
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+a.APIKey)
 	}
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "network error: " + trimErr(err)
+		return "", errors.New("network error: " + trimErr(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return "ok"
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return strings.TrimSpace(string(body)), nil
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 	snippet := strings.TrimSpace(string(body))
 	if len(snippet) > 140 {
 		snippet = snippet[:140] + "…"
 	}
-	return fmt.Sprintf("http %d — %s", resp.StatusCode, snippet)
+	return "", fmt.Errorf("http %d — %s", resp.StatusCode, snippet)
 }
 
 func trimErr(err error) string {

@@ -14,6 +14,30 @@ PR / commit summary.
 
 -
 
+## [1.0.0] - 2026-04-18
+
+### Added
+
+- **Git commit message generation** — Cursor's `WriteGitCommitMessage` flow is now implemented against the configured BYOK model so the IDE can generate commit messages through the local gateway.
+- **Agent Review / BugBot protocol support** — added `StreamBugBotAgenticSSE` handling plus BugBot bidi/session plumbing so Cursor's review flow can run through the same local provider bridge.
+- **Background Composer support** — implemented local handling for the Background Composer RPC surface used by Cursor's newer Agents UI, including followups, status lookup, attach streaming, interaction update streaming, and local `bc_id` session/state tracking.
+- **Background Composer tool/result bridge** — attach streams now emit streamed-back tool calls and final tool results using Cursor's V2 tool/result proto types instead of a placeholder heartbeat-only shim.
+
+### Changed
+
+- **Model routing is now request-scoped** — normal chat, agent, BugBot, and Background Composer requests now resolve the target adapter from Cursor's request metadata instead of always falling back to the first configured model.
+- **Adapter testing now performs real inference** — the dashboard's model test flow sends a small completion/messages request to the configured model instead of only pinging `/models`, so invalid model IDs and auth/config mismatches surface immediately.
+- **Commit generator output restored to conventional style** — commit message generation again prefers concise conventional-commit prefixes like `feat:` / `fix:` while keeping latency low by disabling unnecessary reasoning-oriented options for that path.
+- **Background Composer streaming is closer to native Cursor behavior** — attach streams now emit prompt, thinking, text deltas, streamed tool calls, final tool results, and status transitions through the local gateway.
+
+### Fixed
+
+- **Shell tool execution no longer disappears into the wrong bidi handler** — `BidiAppend` routing now only treats brand-new requests as BugBot when they carry an explicit BugBot start message, preventing normal shell/tool exec results from being misrouted and dropped.
+- **Shell command completions recovered in chat and agent mode** — restored the working shell arg behavior and exit/result correlation so terminal commands again complete and feed output back into the agent loop.
+- **Cross-chat session contamination** — retry/reconnect fallback now only clones text-bearing sessions from the same conversation instead of reusing the most recent unrelated chat, preventing agent-window and normal-chat responses from bleeding into each other.
+- **OpenAI-compatible MCP schema compatibility** — top-level schema composition keywords are sanitized before MCP tools are exposed as OpenAI functions, avoiding upstream `invalid_function_parameters` failures on providers that reject `oneOf` / `anyOf` / `allOf` roots.
+- **Background Composer no longer hard-404s in the newer Agents window** — the relevant Background Composer endpoints are now implemented locally, which removes the earlier reconnecting/stub-only failure mode and lets the newer UI establish real sessions.
+
 ## [0.2.0] - 2026-04-17
 
 ### Added

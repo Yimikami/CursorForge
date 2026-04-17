@@ -36,6 +36,16 @@ func HandleBidiAppend(reqBody []byte, contentType string) Result {
 	if err := decodeUnary(reqBody, contentType, bidi); err != nil {
 		return errResult(http.StatusBadRequest, "decode bidi append: "+err.Error())
 	}
+	if shouldRouteToBugBot(bidi) {
+		return handleBugBotBidiAppendDecoded(bidi)
+	}
+	return handleAgentBidiAppendDecoded(bidi)
+}
+
+func handleAgentBidiAppendDecoded(bidi *aiserverv1.BidiAppendRequest) Result {
+	if bidi == nil {
+		return errResult(http.StatusBadRequest, "missing bidi append body")
+	}
 
 	requestID := ""
 	if bidi.RequestId != nil {
@@ -83,6 +93,64 @@ func HandleBidiAppend(reqBody []byte, contentType string) Result {
 	return Result{Status: http.StatusOK, ContentType: "application/proto", Body: body}
 }
 
+// HandleBugBotBidiAppend mirrors HandleBidiAppend for BugBot's parallel bidi
+// transport. Cursor sends the initial StreamBugBotRequest and later tool
+// results through the same BidiAppend envelope keyed by request_id.
+func HandleBugBotBidiAppend(reqBody []byte, contentType string) Result {
+	bidi := &aiserverv1.BidiAppendRequest{}
+	if err := decodeUnary(reqBody, contentType, bidi); err != nil {
+		return errResult(http.StatusBadRequest, "decode bugbot bidi append: "+err.Error())
+	}
+	return handleBugBotBidiAppendDecoded(bidi)
+}
+
+func handleBugBotBidiAppendDecoded(bidi *aiserverv1.BidiAppendRequest) Result {
+	if bidi == nil {
+		return errResult(http.StatusBadRequest, "missing bugbot bidi append body")
+	}
+
+	requestID := ""
+	if bidi.RequestId != nil {
+		requestID = bidi.RequestId.RequestId
+	}
+	if requestID == "" {
+		return errResult(http.StatusBadRequest, "missing request_id")
+	}
+
+	sess := &Session{RequestID: requestID}
+	if existing := GetSession(requestID); existing != nil {
+		sess = existing
+	}
+
+	if bidi.Data != "" {
+		raw, err := hex.DecodeString(strings.TrimSpace(bidi.Data))
+		if err != nil {
+			return errResult(http.StatusBadRequest, "bugbot bidi data not hex: "+err.Error())
+		}
+		acm := &aiserverv1.StreamBugBotAgenticClientMessage{}
+		if err := proto.Unmarshal(raw, acm); err != nil {
+			return errResult(http.StatusBadRequest, "parse bugbot client message: "+err.Error())
+		}
+		if start := acm.GetStart(); start != nil {
+			sess.BugBotRequest = start
+			sess.UserText = buildBugBotPrompt(start)
+			if sess.ConversationID == "" {
+				sess.ConversationID = "bugbot:" + requestID
+			}
+		}
+		if execMsg := acm.GetExecClientMessage(); execMsg != nil {
+			routeBugBotExecClientResult(execMsg)
+		}
+	}
+
+	PutSession(sess)
+	body, err := proto.Marshal(&aiserverv1.BidiAppendResponse{})
+	if err != nil {
+		return errResult(http.StatusInternalServerError, "marshal response: "+err.Error())
+	}
+	return Result{Status: http.StatusOK, ContentType: "application/proto", Body: body}
+}
+
 func errResult(status int, msg string) Result {
 	body := []byte(`{"code":"invalid_argument","message":` + jsonString(msg) + `}`)
 	return Result{Status: status, ContentType: "application/json", Body: body}
@@ -119,6 +187,110 @@ func extractIntoSession(sess *Session, acm *agentv1.AgentClientMessage) {
 	if pre := acm.GetPrewarmRequest(); pre != nil && sess.ModelDetails == nil {
 		sess.ModelDetails = pre.GetModelDetails()
 	}
+}
+
+func buildBugBotPrompt(req *aiserverv1.StreamBugBotRequest) string {
+	if req == nil {
+		return "Review the provided git diff and find issues."
+	}
+	var b strings.Builder
+	b.WriteString("Review the provided git diff and find concrete bugs, regressions, or correctness issues. ")
+	b.WriteString("Focus on actionable findings with file and line references.\n\n")
+	if instr := strings.TrimSpace(req.GetUserInstructions()); instr != "" {
+		b.WriteString("User instructions:\n")
+		b.WriteString(instr)
+		b.WriteString("\n\n")
+	}
+	if guide := strings.TrimSpace(req.GetBugDetectionGuidelines()); guide != "" {
+		b.WriteString("Bug detection guidelines:\n")
+		b.WriteString(guide)
+		b.WriteString("\n\n")
+	}
+	b.WriteString("Git diff:\n")
+	b.WriteString(renderBugBotDiff(req.GetGitDiff()))
+	if files := req.GetContextFiles(); len(files) > 0 {
+		b.WriteString("\n\nContext files:\n")
+		for _, f := range files {
+			if f == nil {
+				continue
+			}
+			if name := strings.TrimSpace(f.GetRelativeWorkspacePath()); name != "" {
+				b.WriteString("\nFile: ")
+				b.WriteString(name)
+				b.WriteString("\n")
+			}
+			if contents := strings.TrimSpace(f.GetContents()); contents != "" {
+				b.WriteString(contents)
+				b.WriteString("\n")
+			}
+		}
+	}
+	return b.String()
+}
+
+func renderBugBotDiff(diff *aiserverv1.GitDiff) string {
+	if diff == nil || len(diff.GetDiffs()) == 0 {
+		return "<empty diff>"
+	}
+	var b strings.Builder
+	for i, fd := range diff.GetDiffs() {
+		if fd == nil {
+			continue
+		}
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		from := fd.GetFrom()
+		to := fd.GetTo()
+		if from == "" {
+			from = "/dev/null"
+		}
+		if to == "" {
+			to = "/dev/null"
+		}
+		b.WriteString("diff --git a/")
+		b.WriteString(from)
+		b.WriteString(" b/")
+		b.WriteString(to)
+		for _, ch := range fd.GetChunks() {
+			if ch == nil {
+				continue
+			}
+			b.WriteString("\n")
+			b.WriteString(ch.GetContent())
+		}
+	}
+	if b.Len() == 0 {
+		return "<empty diff>"
+	}
+	return b.String()
+}
+
+func shouldRouteToBugBot(bidi *aiserverv1.BidiAppendRequest) bool {
+	if bidi == nil || bidi.GetData() == "" {
+		return false
+	}
+	requestID := ""
+	if bidi.RequestId != nil {
+		requestID = bidi.RequestId.GetRequestId()
+	}
+	if requestID != "" {
+		if sess := GetSession(requestID); sess != nil && sess.BugBotRequest != nil {
+			return true
+		}
+	}
+	raw, err := hex.DecodeString(strings.TrimSpace(bidi.GetData()))
+	if err != nil {
+		return false
+	}
+	acm := &aiserverv1.StreamBugBotAgenticClientMessage{}
+	if err := proto.Unmarshal(raw, acm); err != nil {
+		return false
+	}
+	// Only treat a brand-new BidiAppend as BugBot when it carries the explicit
+	// Start message. Exec-only payloads can false-positive because aiserver and
+	// agent protos both use field 2/3 for exec messages.
+	return acm.GetStart() != nil
 }
 
 // ---- Connect unary codec helpers ----

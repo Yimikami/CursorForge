@@ -11,6 +11,7 @@ import (
 	"time"
 
 	agentv1 "cursorforge/internal/protocodec/gen/agent/v1"
+	aiserverv1 "cursorforge/internal/protocodec/gen/aiserver/v1"
 
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -669,11 +670,6 @@ func buildToolCallProto(sess *Session, pc PendingToolCall) (*agentv1.ToolCall, s
 			Description      string `json:"description"`
 		}
 		_ = json.Unmarshal([]byte(pc.Arguments), &a)
-		// Mirror the working app's byte-level ShellArgs layout: timeout
-		// capped at 5s, SimpleCommands populated, a ParsingResult stub,
-		// 40KB file output threshold, 24h hard timeout, TIMEOUT_BEHAVIOR
-		// _BACKGROUND, SkipApproval. Cursor's permission check rejects
-		// sparse args — working app captures always set these.
 		timeoutMs := a.BlockUntilMs
 		if timeoutMs == 0 {
 			timeoutMs = 5000
@@ -960,14 +956,18 @@ func routeExecClientResult(acm *agentv1.AgentClientMessage) {
 		switch evt := ss.GetEvent().(type) {
 		case *agentv1.ShellStream_Start:
 			state.Started = true
+			publishInteractionUpdate(&aiserverv1.InteractionUpdate{Message: &aiserverv1.InteractionUpdate_ShellOutputDelta{ShellOutputDelta: &aiserverv1.ShellOutputDeltaUpdate{Event: &aiserverv1.ShellOutputDeltaUpdate_Start{Start: &aiserverv1.ShellStreamStart{}}}}})
 		case *agentv1.ShellStream_Stdout:
 			state.Stdout = append(state.Stdout, []byte(evt.Stdout.GetData())...)
+			publishInteractionUpdate(&aiserverv1.InteractionUpdate{Message: &aiserverv1.InteractionUpdate_ShellOutputDelta{ShellOutputDelta: &aiserverv1.ShellOutputDeltaUpdate{Event: &aiserverv1.ShellOutputDeltaUpdate_Stdout{Stdout: &aiserverv1.ShellStreamStdout{Data: evt.Stdout.GetData()}}}}})
 		case *agentv1.ShellStream_Stderr:
 			state.Stderr = append(state.Stderr, []byte(evt.Stderr.GetData())...)
+			publishInteractionUpdate(&aiserverv1.InteractionUpdate{Message: &aiserverv1.InteractionUpdate_ShellOutputDelta{ShellOutputDelta: &aiserverv1.ShellOutputDeltaUpdate{Event: &aiserverv1.ShellOutputDeltaUpdate_Stderr{Stderr: &aiserverv1.ShellStreamStderr{Data: evt.Stderr.GetData()}}}}})
 		case *agentv1.ShellStream_Exit:
 			state.Exited = true
 			state.ExitCode = evt.Exit.GetCode()
 			state.Cwd = evt.Exit.GetCwd()
+			publishInteractionUpdate(&aiserverv1.InteractionUpdate{Message: &aiserverv1.InteractionUpdate_ShellOutputDelta{ShellOutputDelta: &aiserverv1.ShellOutputDeltaUpdate{Event: &aiserverv1.ShellOutputDeltaUpdate_Exit{Exit: &aiserverv1.ShellStreamExit{Code: evt.Exit.GetCode(), Cwd: evt.Exit.GetCwd()}}}}})
 		}
 		if state.Exited && callID != "" {
 			body, _ := json.Marshal(map[string]any{

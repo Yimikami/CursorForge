@@ -251,6 +251,11 @@ func normalizeMcpSchema(raw json.RawMessage) json.RawMessage {
 	if obj == nil {
 		return fallback
 	}
+	// OpenAI function parameters reject schema composition keywords at the
+	// top level. MCP tools frequently ship oneOf/anyOf/allOf roots, so pick
+	// the first object-like branch as a best-effort approximation before we
+	// force the final wrapper back to a plain object schema.
+	obj = sanitizeTopLevelSchema(obj)
 	// Force top-level type to object (OpenAI requires this at the
 	// parameters root).
 	obj["type"] = "object"
@@ -265,4 +270,43 @@ func normalizeMcpSchema(raw json.RawMessage) json.RawMessage {
 		return fallback
 	}
 	return patched
+}
+
+func sanitizeTopLevelSchema(obj map[string]any) map[string]any {
+	if obj == nil {
+		return map[string]any{}
+	}
+	for _, key := range []string{"oneOf", "anyOf", "allOf"} {
+		if picked := pickObjectSchema(obj[key]); picked != nil {
+			for k, v := range picked {
+				if _, exists := obj[k]; !exists {
+					obj[k] = v
+				}
+			}
+		}
+		delete(obj, key)
+	}
+	delete(obj, "enum")
+	delete(obj, "not")
+	return obj
+}
+
+func pickObjectSchema(v any) map[string]any {
+	list, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	for _, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if t, _ := m["type"].(string); t == "object" {
+			return m
+		}
+		if _, ok := m["properties"]; ok {
+			return m
+		}
+	}
+	return nil
 }

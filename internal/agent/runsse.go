@@ -14,6 +14,7 @@ import (
 
 	agentv1 "cursorforge/internal/protocodec/gen/agent/v1"
 	aiserverv1 "cursorforge/internal/protocodec/gen/aiserver/v1"
+	"cursorforge/internal/relay"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -56,22 +57,76 @@ func (l *lockedWriter) Flush() {
 	}
 }
 
-// AdapterResolver returns the BYOK provider config the runner should use.
-// The MITM layer wires this up to the user's saved ModelAdapters so we
-// don't have to thread the relay package through the agent code.
-//
-// providerType identifies the wire protocol to use:
-//   - "anthropic" → Anthropic Messages API (/v1/messages, x-api-key)
-//   - anything else (incl. "openai", "") → OpenAI Chat Completions
-//     (/chat/completions, Bearer auth). Any OpenAI-compatible provider
-//     (Groq, OpenRouter, Together, vLLM, …) falls in this bucket.
-type AdapterResolver func() (providerType, baseURL, apiKey, model string, opts AdapterOpts, ok bool)
+type AdapterTarget struct {
+	ProviderType string
+	BaseURL      string
+	APIKey       string
+	Model        string
+	StableID     string
+	DisplayName  string
+	Opts         AdapterOpts
+}
+
+// AdapterResolver returns all configured adapters so handlers can resolve the
+// request-selected model instead of always using the first configured adapter.
+type AdapterResolver func() []AdapterTarget
 
 type AdapterOpts struct {
 	ReasoningEffort string
 	ServiceTier     string
 	MaxOutputTokens int
 	ThinkingBudget  int
+}
+
+func AdapterTargetFromRelay(a relay.AdapterInfo) AdapterTarget {
+	return AdapterTarget{
+		ProviderType: a.Type,
+		BaseURL:      a.BaseURL,
+		APIKey:       a.APIKey,
+		Model:        a.ModelID,
+		StableID:     a.StableID(),
+		DisplayName:  a.DisplayName,
+		Opts: AdapterOpts{
+			ReasoningEffort: a.ReasoningEffort,
+			ServiceTier:     a.ServiceTier,
+			MaxOutputTokens: a.MaxOutputTokens,
+			ThinkingBudget:  a.ThinkingBudget,
+		},
+	}
+}
+
+func ResolveAdapterForModel(adapters []AdapterTarget, requested string) (AdapterTarget, bool) {
+	if len(adapters) == 0 {
+		return AdapterTarget{}, false
+	}
+	requested = strings.TrimSpace(requested)
+	if requested != "" {
+		for _, a := range adapters {
+			if strings.EqualFold(requested, a.StableID) || strings.EqualFold(requested, a.Model) || (a.DisplayName != "" && strings.EqualFold(requested, a.DisplayName)) {
+				return a, true
+			}
+		}
+	}
+	return adapters[0], true
+}
+
+func ResolveAdapterForAgentSession(adapters []AdapterTarget, sess *Session) (AdapterTarget, bool) {
+	requested := ""
+	if sess != nil && sess.ModelDetails != nil {
+		requested = sess.ModelDetails.GetModelId()
+		if requested == "" {
+			requested = sess.ModelDetails.GetDisplayModelId()
+		}
+	}
+	return ResolveAdapterForModel(adapters, requested)
+}
+
+func ResolveAdapterForBugBotRequest(adapters []AdapterTarget, req *aiserverv1.StreamBugBotRequest) (AdapterTarget, bool) {
+	requested := ""
+	if req != nil && req.GetModelDetails() != nil {
+		requested = req.GetModelDetails().GetModelName()
+	}
+	return ResolveAdapterForModel(adapters, requested)
 }
 
 // RunSSEHeaders is the response header set the bridge writes BEFORE handing
@@ -135,11 +190,12 @@ func HandleRunSSE(
 			}
 		}
 	}()
-	providerType, baseURL, apiKey, model, adapterOpts, ok := resolve()
+	target, ok := ResolveAdapterForAgentSession(resolve(), sess)
 	if !ok {
 		writeEndStreamError(w, "no BYOK adapter configured")
 		return
 	}
+	providerType, baseURL, apiKey, model, adapterOpts := target.ProviderType, target.BaseURL, target.APIKey, target.Model, target.Opts
 	// Pick the transport by adapter type. OpenAI is the default because
 	// "openai-compatible" covers the long tail of providers (Groq, OpenRouter,
 	// Together, vLLM, llama.cpp, Azure OpenAI, etc.) — anything that isn't
@@ -483,6 +539,7 @@ The foreground wait window expired without a terminal event. The command may sti
 			"finished_at":       time.Now().UTC().Format(time.RFC3339Nano),
 			"duration_ms":       time.Since(startedAt).Milliseconds(),
 			"model":             model,
+			"requested_model":   requestedModelForSession(sess),
 			"provider":          providerFromURL(baseURL),
 			"output_len":        assistantBuf.Len(),
 			"message_count":     len(messages),
@@ -537,6 +594,7 @@ func persistFailure(sess *Session, requestID string, startedAt time.Time, messag
 		"finished_at":   time.Now().UTC().Format(time.RFC3339Nano),
 		"duration_ms":   time.Since(startedAt).Milliseconds(),
 		"model":         model,
+		"requested_model": requestedModelForSession(sess),
 		"provider":      providerFromURL(baseURL),
 		"message_count": len(messages),
 		"error":         streamErr.Error(),
@@ -572,6 +630,16 @@ func providerFromURL(url string) string {
 	default:
 		return "custom"
 	}
+}
+
+func requestedModelForSession(sess *Session) string {
+	if sess == nil || sess.ModelDetails == nil {
+		return ""
+	}
+	if id := sess.ModelDetails.GetModelId(); id != "" {
+		return id
+	}
+	return sess.ModelDetails.GetDisplayModelId()
 }
 
 // writeEndStreamError emits the Connect END-STREAM frame with an error

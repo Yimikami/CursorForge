@@ -8,6 +8,7 @@ import (
 	"time"
 
 	agentv1 "cursorforge/internal/protocodec/gen/agent/v1"
+	aiserverv1 "cursorforge/internal/protocodec/gen/aiserver/v1"
 )
 
 // Session captures the conversation state Cursor sent through BidiAppend.
@@ -21,6 +22,7 @@ type Session struct {
 	RequestID      string
 	ConversationID string
 	UserText       string
+	BugBotRequest  *aiserverv1.StreamBugBotRequest
 	Mode           agentv1.AgentMode
 	ModelDetails   *agentv1.ModelDetails
 	Action         *agentv1.ConversationAction
@@ -313,7 +315,9 @@ func (s *sessionStore) Put(sess *Session) {
 		s.byID[sess.RequestID] = sess
 	}
 	if conv := sess.ConversationID; conv != "" {
-		s.byConv[conv] = sess
+		if sess.UserText != "" || s.byConv[conv] == nil {
+			s.byConv[conv] = sess
+		}
 	}
 	s.lastPut = sess
 	if sess.UserText != "" {
@@ -340,6 +344,19 @@ func (s *sessionStore) Get(id string) *Session {
 		}
 	}
 	return nil
+}
+
+func (s *sessionStore) textfulSessionForConversation(conversationID string) *Session {
+	if conversationID == "" {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sess := s.byConv[conversationID]
+	if sess == nil || sess.UserText == "" {
+		return nil
+	}
+	return sess
 }
 
 func (s *sessionStore) Drop(id string) {
@@ -455,43 +472,36 @@ func WaitForSession(ctx context.Context, id string) *Session {
 		deadline = dl
 	}
 	for {
-		if sess := GetSession(id); sess != nil && sess.UserText != "" {
-			return sess
-		}
-		if time.Now().After(deadline) {
-			// Continuation / reconnect: we have no matching session (or
-			// only a heartbeat skeleton with no UserText). Only clone the
-			// most recent conversation when we can be confident the request
-			// really belongs there (recent, no sibling chat active).
-			store.mu.RLock()
-			fallback := store.lastConvSafeFallback()
-			store.mu.RUnlock()
-			if fallback != nil {
+		if sess := GetSession(id); sess != nil {
+			if sess.UserText != "" {
+				return sess
+			}
+			if fallback := store.textfulSessionForConversation(sess.ConversationID); fallback != nil {
 				clone := *fallback
 				clone.RequestID = id
-				// Clear the McpMap — it's request-scoped state rebuilt on
-				// every new turn by openAIToolsForRequest. Sharing the
-				// previous map across requests would stick stale entries.
+				clone.ConversationID = sess.ConversationID
 				clone.McpMap = nil
 				PutSession(&clone)
 				return &clone
 			}
+		}
+		if time.Now().After(deadline) {
 			return GetSession(id)
 		}
 		select {
 		case <-ctx.Done():
-			if sess := GetSession(id); sess != nil && sess.UserText != "" {
-				return sess
-			}
-			store.mu.RLock()
-			fallback := store.lastConvSafeFallback()
-			store.mu.RUnlock()
-			if fallback != nil {
-				clone := *fallback
-				clone.RequestID = id
-				clone.McpMap = nil
-				PutSession(&clone)
-				return &clone
+			if sess := GetSession(id); sess != nil {
+				if sess.UserText != "" {
+					return sess
+				}
+				if fallback := store.textfulSessionForConversation(sess.ConversationID); fallback != nil {
+					clone := *fallback
+					clone.RequestID = id
+					clone.ConversationID = sess.ConversationID
+					clone.McpMap = nil
+					PutSession(&clone)
+					return &clone
+				}
 			}
 			return nil
 		case <-time.After(25 * time.Millisecond):

@@ -5,7 +5,7 @@ import { Window, Events, Browser, System } from "@wailsio/runtime";
 import OpenAIMark from "./logos/OpenAIMark.vue";
 import AnthropicMark from "./logos/AnthropicMark.vue";
 
-const APP_VERSION = "0.2.0";
+const APP_VERSION = "1.0.0";
 const GITHUB_REPO = "Yimikami/cursorforge";
 const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
 

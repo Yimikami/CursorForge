@@ -70,6 +70,12 @@ func New(addr string, ca *certs.CA, gw *relay.Gateway, resolver AgentResolver) (
 	allowedAPI2Paths := map[string]struct{}{
 		"/aiserver.v1.BidiService/BidiAppend": {}, // agent input stream
 		"/agent.v1.AgentService/RunSSE":       {}, // agent output SSE
+		"/aiserver.v1.AiService/WriteGitCommitMessage": {},
+		"/aiserver.v1.AiService/StreamBugBotAgenticSSE": {},
+		"/aiserver.v1.BackgroundComposerService/AddAsyncFollowupBackgroundComposer": {},
+		"/aiserver.v1.BackgroundComposerService/GetBackgroundComposerStatus": {},
+		"/aiserver.v1.BackgroundComposerService/AttachBackgroundComposer": {},
+		"/aiserver.v1.BackgroundComposerService/StreamInteractionUpdatesSSE": {},
 	}
 	authHosts := map[string]struct{}{
 		"prod.authentication.cursor.sh":     {},
@@ -138,6 +144,24 @@ func New(addr string, ca *certs.CA, gw *relay.Gateway, resolver AgentResolver) (
 			}
 			if path == "/agent.v1.AgentService/RunSSE" {
 				return req, handleRunSSE(req, resolver)
+			}
+			if path == "/aiserver.v1.AiService/WriteGitCommitMessage" {
+				return req, handleWriteGitCommitMessage(req, resolver)
+			}
+			if path == "/aiserver.v1.AiService/StreamBugBotAgenticSSE" {
+				return req, handleBugBotRunSSE(req, resolver)
+			}
+			if path == "/aiserver.v1.BackgroundComposerService/AddAsyncFollowupBackgroundComposer" {
+				return req, handleBackgroundComposerAddFollowup(req)
+			}
+			if path == "/aiserver.v1.BackgroundComposerService/GetBackgroundComposerStatus" {
+				return req, handleBackgroundComposerStatus(req)
+			}
+			if path == "/aiserver.v1.BackgroundComposerService/AttachBackgroundComposer" {
+				return req, handleBackgroundComposerAttach(req, resolver)
+			}
+			if path == "/aiserver.v1.BackgroundComposerService/StreamInteractionUpdatesSSE" {
+				return req, handleBackgroundComposerInteractionUpdates(req)
 			}
 			if _, allowed := allowedAPI2Paths[path]; allowed {
 				return req, nil
@@ -225,6 +249,137 @@ func handleRunSSE(req *http.Request, resolver agent.AdapterResolver) *http.Respo
 		Header:     hdr,
 		Request:    req,
 	}
+}
+
+func handleWriteGitCommitMessage(req *http.Request, resolver agent.AdapterResolver) *http.Response {
+	body, err := readDecodedBody(req)
+	if err != nil {
+		return makeJSONResp(req, http.StatusBadRequest, `{"code":"invalid_argument","message":"read body: `+err.Error()+`"}`)
+	}
+	res := agent.HandleWriteGitCommitMessage(req.Context(), body, req.Header.Get("Content-Type"), resolver)
+	hdr := http.Header{}
+	if res.ContentType != "" {
+		hdr.Set("Content-Type", res.ContentType)
+	}
+	return &http.Response{
+		Status:        http.StatusText(res.Status),
+		StatusCode:    res.Status,
+		Proto:         req.Proto,
+		ProtoMajor:    req.ProtoMajor,
+		ProtoMinor:    req.ProtoMinor,
+		Body:          io.NopCloser(bytes.NewReader(res.Body)),
+		ContentLength: int64(len(res.Body)),
+		Header:        hdr,
+		Request:       req,
+	}
+}
+
+func handleBugBotRunSSE(req *http.Request, resolver agent.AdapterResolver) *http.Response {
+	body, err := readDecodedBody(req)
+	if err != nil {
+		return makeJSONResp(req, http.StatusBadRequest, `{"code":"invalid_argument","message":"read body: `+err.Error()+`"}`)
+	}
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		agent.HandleBugBotRunSSE(req.Context(), body, req.Header.Get("Content-Type"), pw, resolver)
+	}()
+	hdr := http.Header{}
+	for k, vs := range agent.BugBotSSEHeaders {
+		for _, v := range vs {
+			hdr.Add(k, v)
+		}
+	}
+	return &http.Response{
+		Status:     "200 OK",
+		StatusCode: http.StatusOK,
+		Proto:      req.Proto,
+		ProtoMajor: req.ProtoMajor,
+		ProtoMinor: req.ProtoMinor,
+		Body:       pr,
+		Header:     hdr,
+		Request:    req,
+	}
+}
+
+func handleBackgroundComposerAttach(req *http.Request, resolver agent.AdapterResolver) *http.Response {
+	body, err := readDecodedBody(req)
+	if err != nil {
+		return makeJSONResp(req, http.StatusBadRequest, `{"code":"invalid_argument","message":"read body: `+err.Error()+`"}`)
+	}
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		agent.HandleBackgroundComposerAttach(req.Context(), body, req.Header.Get("Content-Type"), pw, resolver)
+	}()
+	return &http.Response{
+		Status:     "200 OK",
+		StatusCode: http.StatusOK,
+		Proto:      req.Proto,
+		ProtoMajor: req.ProtoMajor,
+		ProtoMinor: req.ProtoMinor,
+		Body:       pr,
+		Header: http.Header{
+			"Content-Type":             {"text/event-stream"},
+			"Cache-Control":            {"no-cache"},
+			"Connect-Content-Encoding": {"gzip"},
+			"Connect-Accept-Encoding":  {"gzip"},
+		},
+		Request: req,
+	}
+}
+
+func handleBackgroundComposerInteractionUpdates(req *http.Request) *http.Response {
+	body, err := readDecodedBody(req)
+	if err != nil {
+		return makeJSONResp(req, http.StatusBadRequest, `{"code":"invalid_argument","message":"read body: `+err.Error()+`"}`)
+	}
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		agent.HandleBackgroundComposerInteractionUpdates(req.Context(), body, req.Header.Get("Content-Type"), pw)
+	}()
+	return &http.Response{
+		Status:     "200 OK",
+		StatusCode: http.StatusOK,
+		Proto:      req.Proto,
+		ProtoMajor: req.ProtoMajor,
+		ProtoMinor: req.ProtoMinor,
+		Body:       pr,
+		Header: http.Header{
+			"Content-Type":             {"text/event-stream"},
+			"Cache-Control":            {"no-cache"},
+			"Connect-Content-Encoding": {"gzip"},
+			"Connect-Accept-Encoding":  {"gzip"},
+		},
+		Request: req,
+	}
+}
+
+func handleBackgroundComposerAddFollowup(req *http.Request) *http.Response {
+	body, err := readDecodedBody(req)
+	if err != nil {
+		return makeJSONResp(req, http.StatusBadRequest, `{"code":"invalid_argument","message":"read body: `+err.Error()+`"}`)
+	}
+	res := agent.HandleAddAsyncBackgroundComposer(body, req.Header.Get("Content-Type"))
+	hdr := http.Header{}
+	if res.ContentType != "" {
+		hdr.Set("Content-Type", res.ContentType)
+	}
+	return &http.Response{Status: http.StatusText(res.Status), StatusCode: res.Status, Proto: req.Proto, ProtoMajor: req.ProtoMajor, ProtoMinor: req.ProtoMinor, Body: io.NopCloser(bytes.NewReader(res.Body)), ContentLength: int64(len(res.Body)), Header: hdr, Request: req}
+}
+
+func handleBackgroundComposerStatus(req *http.Request) *http.Response {
+	body, err := readDecodedBody(req)
+	if err != nil {
+		return makeJSONResp(req, http.StatusBadRequest, `{"code":"invalid_argument","message":"read body: `+err.Error()+`"}`)
+	}
+	res := agent.HandleGetBackgroundComposerStatus(body, req.Header.Get("Content-Type"))
+	hdr := http.Header{}
+	if res.ContentType != "" {
+		hdr.Set("Content-Type", res.ContentType)
+	}
+	return &http.Response{Status: http.StatusText(res.Status), StatusCode: res.Status, Proto: req.Proto, ProtoMajor: req.ProtoMajor, ProtoMinor: req.ProtoMinor, Body: io.NopCloser(bytes.NewReader(res.Body)), ContentLength: int64(len(res.Body)), Header: hdr, Request: req}
 }
 
 // readDecodedBody reads req.Body and transparently un-gzips when Cursor
