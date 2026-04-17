@@ -182,6 +182,8 @@ export class ProxyState {
     "caFingerprint": string;
     "caPath": string;
     "caInstalled": boolean;
+    "caInstallMode"?: string;
+    "caWarning"?: string;
     "lastError"?: string;
 
     /** Creates a new ProxyState instance. */

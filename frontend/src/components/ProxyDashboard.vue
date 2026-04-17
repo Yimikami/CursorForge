@@ -38,6 +38,8 @@ type ProxyState = {
   caFingerprint: string;
   caPath: string;
   caInstalled: boolean;
+  caInstallMode?: string;
+  caWarning?: string;
   lastError?: string;
 };
 
@@ -110,7 +112,7 @@ const HELP = {
   listen:
     "Local address where CursorForge accepts proxied traffic from Cursor IDE.",
   uptime: "How long the local proxy has been running since last start.",
-  caFp: "SHA-256 fingerprint of the local CA. Install this CA into the Windows trust store before enabling MITM.",
+  caFp: "SHA-256 fingerprint of the local CA. Install this CA into the platform trust store before enabling MITM.",
   displayName:
     "Label shown in the picker. Free-form, not sent to the provider.",
   modelID:
@@ -726,8 +728,14 @@ onBeforeUnmount(() => {
               </span>
             </div>
             <div class="row-desc">
-              Adds CursorForge's CA to the current-user Trusted Root store so
+              Adds CursorForge's CA to the current-user trusted store so
               Cursor can verify TLS on intercepted connections.
+            </div>
+            <div class="row-subdesc">
+              Mode: {{ state.caInstallMode || "manual" }}
+            </div>
+            <div v-if="state.caWarning" class="ca-warning">
+              {{ state.caWarning }}
             </div>
             <code class="row-path">SHA-256 {{ shortFP }}</code>
           </div>
@@ -1645,6 +1653,23 @@ onBeforeUnmount(() => {
 .k-off {
   color: #71717a;
 }
+.row-subdesc {
+  color: #a1a1aa;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.ca-warning {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  background: rgba(245, 158, 11, 0.08);
+  color: #fcd34d;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .row-path {
   display: block;
   color: #52525b;

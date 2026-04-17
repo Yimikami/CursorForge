@@ -162,6 +162,36 @@ func (s *ProxyService) fireState() {
 	}
 }
 
+func detectCAInstallMode() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "auto-user-store"
+	case "darwin":
+		return "auto-login-keychain"
+	case "linux":
+		if certs.IsInstalledUserRoot() {
+			return "auto-nss"
+		}
+		return "manual-or-nss"
+	default:
+		return "manual"
+	}
+}
+
+func buildCAWarning() string {
+	switch runtime.GOOS {
+	case "linux":
+		if certs.IsInstalledUserRoot() {
+			return "Linux trust is currently wired through the user's NSS DB (~/.pki/nssdb). Other apps may still need a manual system-store import of the CA PEM from the settings folder."
+		}
+		return "Linux has no single cross-desktop trust store. CursorForge can import into the user's NSS DB when certutil is installed, but other apps may still require a manual system-store import of the CA PEM from the settings folder."
+	case "darwin":
+		return "macOS trust is installed into the current user's login keychain. If Keychain prompts for permission, approve it for Cursor to trust the local MITM CA."
+	default:
+		return ""
+	}
+}
+
 func NewProxyService() (*ProxyService, error) {
 	dir, err := cfgDir()
 	if err != nil {
@@ -194,6 +224,8 @@ func NewProxyService() (*ProxyService, error) {
 			CAFingerprint: ca.Fingerprint(),
 			CAPath:        filepath.Join(ca.Dir(), "ca.crt"),
 			CAInstalled:   certs.IsInstalledUserRoot(),
+			CAInstallMode: detectCAInstallMode(),
+			CAWarning:     buildCAWarning(),
 		},
 	}
 	svc.gatewayAdapters = func() []relay.AdapterInfo { return adapterListFor(svc.cfgDir) }
@@ -226,7 +258,11 @@ func NewProxyService() (*ProxyService, error) {
 func (s *ProxyService) GetState() ProxyState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.state
+	st := s.state
+	st.CAInstalled = certs.IsInstalledUserRoot()
+	st.CAInstallMode = detectCAInstallMode()
+	st.CAWarning = buildCAWarning()
+	return st
 }
 
 func (s *ProxyService) InstallCA() (ProxyState, error) {

@@ -70,9 +70,10 @@ picker into "BYOK not allowed" and hide the injected models.
 
 ## Requirements
 
-- **OS:** Windows 10/11 (64-bit). macOS/Linux may work in dev but the Cursor
-  integration (system-proxy toggle, SQLite auth injection, settings.json
-  tweaks) is currently Windows-specific.
+- **OS:**
+  - **Windows 10/11 (64-bit):** full supported path
+  - **macOS:** supported with automatic CA install into the current user's login keychain
+  - **Linux:** supported with Cursor settings tweaks plus CA trust via the user's NSS DB when `certutil` is installed; otherwise manual CA import is required for full HTTPS MITM trust
 - **Cursor IDE** installed and closed the first time you enable the service.
 - **Go** ≥ 1.25
 - **Node.js** ≥ 18 and **npm**
@@ -80,6 +81,7 @@ picker into "BYOK not allowed" and hide the injected models.
   ```powershell
   go install github.com/wailsapp/wails/v3/cmd/wails3@latest
   ```
+- **Linux only (recommended for automatic CA trust):** `certutil` from `libnss3-tools` / `nss-tools`
 - An API key for an OpenAI-compatible or Anthropic-compatible provider.
 
 ---
@@ -119,34 +121,37 @@ go build -tags production -trimpath `
 
 ## First-time setup
 
-1. Launch `cursorforge.exe`. It minimizes to the tray.
-2. Open the dashboard (tray → "Show CursorForge") and go to the **Overview**
-   tab.
-3. Click **Install CA** — adds CursorForge's self-signed root to Windows'
-   Trusted Root store so the MITM can terminate Cursor's TLS.
-4. Go to the **Models** tab and add at least one adapter:
+1. Launch CursorForge. It minimizes to the tray.
+2. Open the dashboard (tray → "Show CursorForge") and go to the **Overview** tab.
+3. Click **Install CA**.
+   - **Windows:** installs into the current-user Trusted Root store.
+   - **macOS:** installs into the current-user login keychain.
+   - **Linux:** imports into the user's NSS DB (`~/.pki/nssdb`) when `certutil` is available.
+4. If you are on Linux and the dashboard still shows a CA warning, export the PEM from the settings folder and import it manually into the system/browser trust store used by the apps you care about.
+5. Go to the **Models** tab and add at least one adapter:
    - **Type:** `openai` or `anthropic`
    - **Base URL:** e.g. `https://api.openai.com/v1`, `https://api.anthropic.com`,
      `https://openrouter.ai/api/v1`, `http://127.0.0.1:8080/v1`
    - **API key**, **Model ID** (e.g. `gpt-4o`, `claude-3-5-sonnet-latest`,
      `openai/gpt-oss-20b`)
-   - Optional: reasoning effort, service tier, max output tokens, thinking
-     budget.
-5. Back on **Overview**, click **Start service**. This:
-   - Flips Windows system proxy to `127.0.0.1:18080`
-   - Writes `http.proxy` / `http.proxyStrictSSL: false` into Cursor's
-     `settings.json` (originals backed up)
-   - Injects the synthetic Pro session into Cursor's `state.vscdb` (originals
-     backed up to `cursor-auth-backup.json`)
-6. Open Cursor. Your adapter appears in the model picker. Chat away.
-7. Click **Stop service** when done — system proxy is disabled, Cursor settings
-   and auth are restored to what they were before.
+   - Optional: reasoning effort, service tier, max output tokens, thinking budget.
+6. Back on **Overview**, click **Start service**. This:
+   - Enables the system proxy on Windows and macOS
+   - Leaves Linux system proxy untouched, but writes Cursor's own proxy settings so Cursor itself routes through `127.0.0.1:18080`
+   - Writes `http.proxy` / `http.proxyStrictSSL: false` and related Cursor settings (originals backed up)
+   - Injects the synthetic Pro session into Cursor's `state.vscdb` (originals backed up to `cursor-auth-backup.json`)
+7. Open Cursor. Your adapter appears in the model picker. Chat away.
+8. Click **Stop service** when done — proxy state, Cursor settings, and auth are restored to what they were before.
 
 ---
 
 ## Where your data lives
 
-All under `%APPDATA%/CursorForge/`:
+Under the user config root for your platform:
+
+- **Windows:** `%APPDATA%/CursorForge/`
+- **macOS:** `~/Library/Application Support/CursorForge/`
+- **Linux:** `${XDG_CONFIG_HOME:-~/.config}/CursorForge/`
 
 | Path                                  | What                                              |
 | ------------------------------------- | ------------------------------------------------- |
@@ -211,21 +216,16 @@ every Cursor feature slot (composer / cmd-K / agent / etc.).
 
 ## Safety & caveats
 
-- **This is MITM software.** It installs a root CA into Windows' Trusted Root
-  store and routes every system HTTPS connection through localhost while the
-  service is running. Only run it on a machine you control.
-- **Cursor's settings.json and SQLite store are modified.** Originals are
-  backed up and restored on Stop, but if the app is killed mid-run you may need
-  to revert manually. Backups live at:
-  - `%APPDATA%/Cursor/User/settings.json.cursorforge-backup`
-  - `%APPDATA%/CursorForge/cursor-auth-backup.json`
-- **API keys are stored in plain text** in `%APPDATA%/CursorForge/config.json`
-  with `0600` permissions. If that's not acceptable for your threat model,
-  don't use this.
-- **Cursor's protocol is proprietary.** CursorForge tracks behavioural fidelity
-  with specific Cursor versions; a Cursor update can break it at any time.
-- **This project is not affiliated with or endorsed by Anysphere / Cursor.**
-  All trademarks belong to their respective owners.
+- **This is MITM software.** It installs a local root CA and routes Cursor HTTPS traffic through localhost while the service is running. Only run it on a machine you control.
+- **Platform trust differs:**
+  - **Windows:** current-user Trusted Root store
+  - **macOS:** current-user login keychain
+  - **Linux:** user NSS DB (`~/.pki/nssdb`) when `certutil` is available; otherwise you must import the CA manually into the trust stores you use
+- **Linux has no single vendor-neutral trust store.** Automatic NSS import covers Chromium/Electron-style consumers that use NSS, but not every distro, browser, or CLI stack. Manual trust may still be required.
+- **Cursor's settings.json and SQLite store are modified.** Originals are backed up and restored on Stop, but if the app is killed mid-run you may need to revert manually.
+- **API keys are stored in plain text** in CursorForge's `config.json` with user-only permissions where supported. If that's not acceptable for your threat model, don't use this.
+- **Cursor's protocol is proprietary.** CursorForge tracks behavioural fidelity with specific Cursor versions; a Cursor update can break it at any time.
+- **This project is not affiliated with or endorsed by Anysphere / Cursor.** All trademarks belong to their respective owners.
 
 ---
 

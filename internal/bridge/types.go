@@ -8,6 +8,8 @@ type ProxyState struct {
 	CAFingerprint string `json:"caFingerprint"`
 	CAPath        string `json:"caPath"`
 	CAInstalled   bool   `json:"caInstalled"`
+	CAInstallMode string `json:"caInstallMode,omitempty"`
+	CAWarning     string `json:"caWarning,omitempty"`
 	LastError     string `json:"lastError,omitempty"`
 }
 
