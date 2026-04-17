@@ -1,0 +1,393 @@
+[
+  {
+    "function": {
+      "description": "Executes a given command in a shell session with optional foreground timeout.\n\nIMPORTANT: This tool is for terminal operations like git, npm, docker, etc. DO NOT use it for file operations (reading, writing, editing, searching, finding files) - use the specialized tools for this instead.\n\nBACKGROUND EXECUTION: Set `block_until_ms: 0` to immediately run the command in the background — use for dev servers, watchers, long-running builds. The command keeps running after the call returns, and Cursor streams its output to a file under the workspace's terminals folder (exact path comes from the current workspace context). Read that file with the Read tool to poll progress, or to inspect exit status after a foregrounded command times out into background.\n\nBefore executing the command, please follow these steps:\n\n1. Check for Running Processes:\n   - Before starting dev servers or long-running processes that should not be duplicated, list the terminals folder to check if they are already running in existing terminals.\n   - You can use this information to determine which terminal, if any, matches the command you want to run, contains the output from the command you want to inspect, or has changed since you last read them.\n   - Since these are text files, you can read any terminal's contents simply by reading the file, search using Grep, etc.\n2. Directory Verification:\n   - If the command will create new directories or files, first run ls to verify the parent directory exists and is the correct location\n   - For example, before running \"mkdir foo/bar\", first run 'ls' to check that \"foo\" exists and is the intended parent directory\n3. Command Execution:\n   - Always quote file paths that contain spaces with double quotes (e.g., cd \"path with spaces/file.txt\")\n   - Examples of proper quoting:\n     - cd \"/Users/name/My Documents\" (correct)\n     - cd /Users/name/My Documents (incorrect - will fail)\n     - python \"/path/with spaces/script.py\" (correct)\n     - python /path/with spaces/script.py (incorrect - will fail)\n   - After ensuring proper quoting, execute the command.\n   - Capture the output of the command.\n\nUsage notes:\n\n- The command argument is required.\n- The shell starts in the workspace root and is stateful across sequential calls. Current working directory and environment variables persist between calls. Use the `working_directory` parameter to run commands in different directories. Example: to run `npm install` in the `frontend` folder, set `working_directory: \"frontend\"` rather than using `cd frontend && npm install`.\n- It is very helpful if you write a clear, concise description of what this command does in 5-10 words.\n- VERY IMPORTANT: You MUST avoid using search commands like `find` and `grep`.Instead use Grep, Glob to search.You MUST avoid read tools like `cat`, `head`, and `tail`, and use Read to read files.Avoid editing files with tools like `sed` and `awk`, use StrReplace instead.\n- If you _still_ need to run `grep`, STOP. ALWAYS USE ripgrep at `rg` first, which all users have pre-installed.\n- When issuing multiple commands:\n  - If the commands are independent and can run in parallel, make multiple Shell tool calls in a single message. For example, if you need to run \"git status\" and \"git diff\", send a single message with two Shell tool calls in parallel.\n  - If the commands depend on each other and must run sequentially, use a single Shell call with '&&' to chain them together (e.g., `git add . && git commit -m \"message\" && git push`). For instance, if one operation must complete before another starts (like mkdir before cp,Write before Shell for git operations, or git add before git commit), run these operations sequentially instead.\n  - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail\n  - DO NOT use newlines to separate commands (newlines are ok in quoted strings)\n\nDependencies:\n\nWhen adding new dependencies, prefer using the package manager (e.g. npm, pip) to add the latest version. Do not make up dependency versions.\n\n<managing-long-running-commands>\n- Commands that don't complete within `block_until_ms` (default 30000ms / 30 seconds) are moved to background. The command keeps running and output streams to a terminal file. Set `block_until_ms: 0` to immediately background (use for dev servers, watchers, or any long-running process).\n- You do not need to use '&' at the end of commands.\n- Make sure to set `block_until_ms` to higher than the command's expected runtime. Add some buffer since block_until_ms includes shell startup time; increase buffer next time based on `elapsed_ms` if you chose too low. E.g. if you sleep for 40s, recommended `block_until_ms` is 45s.\n- Monitoring backgrounded commands:\n  - When command moves to background, check status immediately by reading the terminal file.\n  - Header has `pid` and `running_for_ms` (updated every 5000ms)\n  - When finished, footer with `exit_code` and `elapsed_ms` appears.\n  - Poll repeatedly to monitor by sleeping between checks. If the file gets large, read from the end of the file to capture the latest content.\n  - Pick your sleep intervals using best guess/judgment based on any knowledge you have about the command and its expected runtime, and any output from monitoring the command. When no new output, exponential backoff is a good strategy (e.g. sleep 2000ms, 4000ms, 8000ms, 16000ms...), using educated guess for min and max wait.\n  - If it's longer than expected and the command seems like it is hung, kill the process if safe to do so using the pid that appears in the header. If possible, try to fix the hang and proceed.\n  - Don't stop polling until: (a) `exit_code` footer appears (terminating command), (b) the command reaches a healthy steady state (only for non-terminating command, e.g. dev server/watcher), or (c) command is hung - follow guidance above.\n</managing-long-running-commands>\n\n<committing-changes-with-git>\nOnly create commits when requested by the user. If unclear, ask first. When the user asks you to create a new git commit, follow these steps carefully:\n\nGit Safety Protocol:\n\n- NEVER update the git config\n- NEVER run destructive/irreversible git commands (like push --force, hard reset, etc) unless the user explicitly requests them\n- NEVER skip hooks (--no-verify, --no-gpg-sign, etc) unless the user explicitly requests it\n- NEVER run force push to main/master, warn the user if they request it\n- Avoid git commit --amend. ONLY use --amend when ALL conditions are met:\n  1. User explicitly requested amend, OR commit SUCCEEDED but pre-commit hook auto-modified files that need including\n  2. HEAD commit was created by you in this conversation (verify: git log -1 --format='%an %ae')\n  3. Commit has NOT been pushed to remote (verify: git status shows \"Your branch is ahead\")\n- CRITICAL: If commit FAILED or was REJECTED by hook, NEVER amend - fix the issue and create a NEW commit\n- CRITICAL: If you already pushed to remote, NEVER amend unless user explicitly requests it (requires force push)\n- NEVER commit changes unless the user explicitly asks you to. It is VERY IMPORTANT to only commit when explicitly asked, otherwise the user will feel that you are being too proactive.\n\n1. You can call multiple tools in a single response. When multiple independent pieces of information are requested, batch your tool calls together for optimal performance. ALWAYS run the following shell commands in parallel, each using the Shell tool:\n   - Run a git status command to see all untracked files.\n   - Run a git diff command to see both staged and unstaged changes that will be committed.\n   - Run a git log command to see recent commit messages, so that you can follow this repository's commit message style.\n2. Analyze all staged changes (both previously staged and newly added) and draft a commit message:\n   - Summarize the nature of the changes (eg. new feature, enhancement to an existing feature, bug fix, refactoring, test, docs, etc.). Ensure the message accurately reflects the changes and their purpose (i.e. \"add\" means a wholly new feature, \"update\" means an enhancement to an existing feature, \"fix\" means a bug fix, etc.).\n   - Do not commit files that likely contain secrets (.env, credentials.json, etc). Warn the user if they specifically request to commit those files\n   - Draft a concise (1-2 sentences) commit message that focuses on the \"why\" rather than the \"what\"\n   - Ensure it accurately reflects the changes and their purpose\n3. Run the following commands sequentially:\n   - Add relevant untracked files to the staging area.\n   - Commit the changes with the message.\n   - Run git status after the commit completes to verify success.\n4. If the commit fails due to pre-commit hook, fix the issue and create a NEW commit (see amend rules above)\n\nImportant notes:\n\n- NEVER update the git config\n- NEVER run additional commands to read or explore code, besides git shell commands\n- DO NOT push to the remote repository unless the user explicitly asks you to do so\n- IMPORTANT: Never use git commands with the -i flag (like git rebase -i or git add -i) since they require interactive input which is not supported.\n- If there are no changes to commit (i.e., no untracked files and no modifications), do not create an empty commit\n- In order to ensure good formatting, ALWAYS pass the commit message via a HEREDOC, a la this example:\n\n<example>git commit -m \"$(cat <<'EOF'\nCommit message here.\n\nEOF\n)\"</example>\n</committing-changes-with-git>\n\n<creating-pull-requests>\nUse the gh command via the Shell tool for ALL GitHub-related tasks including working with issues, pull requests, checks, and releases. If given a Github URL use the gh command to get the information needed.\n\nIMPORTANT: When the user asks you to create a pull request, follow these steps carefully:\n\n1. You have the capability to call multiple tools in a single response. When multiple independent pieces of information are requested, batch your tool calls together for optimal performance. ALWAYS run the following shell commands in parallel using the Shell tool, in order to understand the current state of the branch since it diverged from the main branch:\n   - Run a git status command to see all untracked files\n   - Run a git diff command to see both staged and unstaged changes that will be committed\n   - Check if the current branch tracks a remote branch and is up to date with the remote, so you know if you need to push to the remote\n   - Run a git log command and `git diff [base-branch]...HEAD` to understand the full commit history for the current branch (from the time it diverged from the base branch)\n2. Analyze all changes that will be included in the pull request, making sure to look at all relevant commits (NOT just the latest commit, but ALL commits that will be included in the pull request!!!), and draft a pull request summary\n3. Run the following commands sequentially:\n   - Create new branch if needed\n   - Push to remote with -u flag if needed\n   - Create PR using gh pr create with the format below. Use a HEREDOC to pass the body to ensure correct formatting.\n\n<example># First, push the branch (with required_permissions: [\"all\"])\ngit push -u origin HEAD\n\n# Then create the PR (with required_permissions: [\"all\"])\ngh pr create --title \"the pr title\" --body \"$(cat <<'EOF'\n## Summary\n<1-3 bullet points>\n\n## Test plan\n[Checklist of TODOs for testing the pull request...]\n\nEOF\n)\"</example>\n\nImportant:\n\n- NEVER update the git config\n- DO NOT use the TodoWrite or Task tools\n- Return the PR URL when you're done, so the user can see it\n</creating-pull-requests>\n\n<other-common-operations>\n- View comments on a Github PR: gh api repos/foo/bar/pulls/123/comments\n</other-common-operations>",
+      "name": "Shell",
+      "parameters": {
+        "properties": {
+          "block_until_ms": {
+            "description": "How long to block and wait for the command to complete before moving it to background (in milliseconds). Defaults to 30000ms (30 seconds). Set to 0 to immediately run the command in the background. The timer includes the shell startup time.",
+            "type": "number"
+          },
+          "command": {
+            "description": "The command to execute",
+            "type": "string"
+          },
+          "description": {
+            "description": "Clear, concise description of what this command does in 5-10 words",
+            "type": "string"
+          },
+          "working_directory": {
+            "description": "The absolute path to the working directory to execute the command in (defaults to current directory)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "\nTool to search for files matching a glob pattern\n\n- Works fast with codebases of any size\n- Returns matching file paths sorted by modification time\n- Use this tool when you need to find files by name patterns\n- You have the capability to call multiple tools in a single response. It is always better to speculatively perform multiple searches that are potentially useful as a batch.\n",
+      "name": "Glob",
+      "parameters": {
+        "properties": {
+          "glob_pattern": {
+            "description": "The glob pattern to match files against.\nPatterns not starting with \"**/\" are automatically prepended with \"**/\" to enable recursive searching.\n\nExamples:\n\t- \"*.js\" (becomes \"**/*.js\") - find all .js files\n\t- \"**/node_modules/**\" - find all node_modules directories\n\t- \"**/test/**/test_*.ts\" - find all test_*.ts files in any test directory",
+            "type": "string"
+          },
+          "target_directory": {
+            "description": "Absolute path to directory to search for files in. If not provided, defaults to Cursor workspace root.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "glob_pattern"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "A powerful search tool built on ripgrep\nUsage:\n- Prefer using Grep for search tasks when you know the exact symbols or strings to search for. Whenever possible, use this tool instead of invoking grep or rg as a terminal command. The Grep tool has been optimized for speed and file restrictions inside Cursor.\n- Supports full regex syntax (e.g., \"log.*Error\", \"function\\s+\\w+\")\n- Filter files with glob parameter (e.g., \".js\", \"**/.tsx\") or type parameter (e.g., \"js\", \"py\", \"rust\")\n- Output modes: \"content\" shows matching lines (default), \"files_with_matches\" shows only file paths, \"count\" shows match counts\n- Pattern syntax: Uses ripgrep (not grep) - literal braces need escaping (use interface\\{\\} to find interface{} in Go code)\n- Multiline matching: By default patterns match within single lines only. For cross-line patterns like struct \\{[\\s\\S]*?field, use multiline: true\n- Results are capped to several thousand output lines for responsiveness; when truncation occurs, the results report \"at least\" counts, but are otherwise accurate.\n- Content output formatting closely follows ripgrep output format: '-' for context lines, ':' for match lines, and all context/match lines below each file group.",
+      "name": "Grep",
+      "parameters": {
+        "properties": {
+          "-A": {
+            "description": "Number of lines to show after each match (rg -A). Requires output_mode: \"content\", ignored otherwise.",
+            "type": "number"
+          },
+          "-B": {
+            "description": "Number of lines to show before each match (rg -B). Requires output_mode: \"content\", ignored otherwise.",
+            "type": "number"
+          },
+          "-C": {
+            "description": "Number of lines to show before and after each match (rg -C). Requires output_mode: \"content\", ignored otherwise.",
+            "type": "number"
+          },
+          "-i": {
+            "description": "Case insensitive search (rg -i) Defaults to false",
+            "type": "boolean"
+          },
+          "glob": {
+            "description": "Glob pattern to filter files (e.g. \"*.js\", \"*.{ts,tsx}\") - maps to rg --glob",
+            "type": "string"
+          },
+          "head_limit": {
+            "description": "Limit output size. For \"content\" mode: limits total matches shown. For \"files_with_matches\" and \"count\" modes: limits number of files.",
+            "minimum": 0,
+            "type": "number"
+          },
+          "multiline": {
+            "description": "Enable multiline mode where . matches newlines and patterns can span lines (rg -U --multiline-dotall). Default: false.",
+            "type": "boolean"
+          },
+          "offset": {
+            "description": "Skip first N entries. For \"content\" mode: skips first N matches. For \"files_with_matches\" and \"count\" modes: skips first N files. Use with head_limit for pagination.",
+            "minimum": 0,
+            "type": "number"
+          },
+          "output_mode": {
+            "description": "Output mode: \"content\" shows matching lines (supports -A/-B/-C context, -n line numbers, head_limit), \"files_with_matches\" shows file paths (supports head_limit), \"count\" shows match counts (supports head_limit). Defaults to \"content\".",
+            "enum": [
+              "content",
+              "files_with_matches",
+              "count"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "description": "File or directory to search in (rg pattern -- PATH). Defaults to Cursor workspace root.",
+            "type": "string"
+          },
+          "pattern": {
+            "description": "The regular expression pattern to search for in file contents",
+            "type": "string"
+          },
+          "type": {
+            "description": "File type to search (rg --type). Common types: js, py, rust, go, java, etc. More efficient than include for standard file types.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Reads a file from the local filesystem. You can access any file directly by using this tool.\nIf the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.\n\nUsage:\n- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters\n- Lines in the output are numbered starting at 1, using following format: LINE_NUMBER|LINE_CONTENT\n- You have the capability to call multiple tools in a single response. It is always better to speculatively read multiple files as a batch that are potentially useful.\n- If you read a file that exists but has empty contents you will receive 'File is empty.'\n\nImage Support:\n- This tool can also read image files when called with the appropriate path.\n- Supported image formats: jpeg/jpg, png, gif, webp.\n\nPDF Support:\n- PDF files are converted into text content automatically (subject to the same character limits as other files).",
+      "name": "Read",
+      "parameters": {
+        "properties": {
+          "limit": {
+            "description": "The number of lines to read. Only provide if the file is too large to read at once.",
+            "type": "integer"
+          },
+          "offset": {
+            "description": "The line number to start reading from. Positive values are 1-indexed from the start of the file. Negative values count backwards from the end (e.g. -1 is the last line). Only provide if the file is too large to read at once.",
+            "type": "integer"
+          },
+          "path": {
+            "description": "The absolute path of the file to read.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Deletes a file at the specified path. The operation will fail gracefully if:\n    - The file doesn't exist\n    - The operation is rejected for security reasons\n    - The file cannot be deleted",
+      "name": "Delete",
+      "parameters": {
+        "properties": {
+          "path": {
+            "description": "The absolute path of the file to delete",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Performs exact string replacements in files.\n\nUsage:\n- When editing text, ensure you preserve the exact indentation (tabs/spaces) as it appears before.\n- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.\n- The system will read the file immediately before applying the replacement and again after writing to verify the final contents.\n- On success, `afterFullFileContent` is the verified final file contents, and the result includes the resolved file path.\n- `old_string` must match the current file contents exactly, including whitespace and indentation. For multiline text, the system also tolerates `\\n` vs `\\r\\n` differences while preserving the file's current line ending style when writing.\n- `new_string` is required, may be an empty string, and `\"\"` means delete the matched text.\n- The edit will FAIL if old_string is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use replace_all to change every instance of old_string.\n- Use replace_all for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.\n- Optional parameter: replace_all (boolean, default false) — if true, replaces all occurrences of old_string in the file.\n\nIf you want to create a new file, use the Write tool instead.",
+      "name": "StrReplace",
+      "parameters": {
+        "properties": {
+          "new_string": {
+            "description": "The replacement text. It may be an empty string to delete the matched text.",
+            "type": "string"
+          },
+          "old_string": {
+            "description": "The text to replace",
+            "type": "string"
+          },
+          "replace_all": {
+            "description": "Replace all occurrences of old_string (default false)",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "The absolute path to the file to modify",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "old_string",
+          "new_string"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Writes a file to the local filesystem.\n\nUsage:\n- This tool will overwrite the existing file if there is one at the provided path.\n- The system may perform hidden reads before and after the write to verify the final contents.\n- The tool result returns the full final file contents after the write is verified.\n- When that full final content is present, treat `fileContentAfterWrite` as the latest source of truth for subsequent reasoning and edits unless the file may have changed again.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.",
+      "name": "Write",
+      "parameters": {
+        "properties": {
+          "contents": {
+            "description": "The contents to write to the file",
+            "type": "string"
+          },
+          "path": {
+            "description": "The absolute path to the file to modify",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "contents"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Create a structured plan for a multi-step task. The IDE's native Plan panel (and the .plan.md file) only open when CreatePlan runs in Plan mode — if you're in Agent mode and the user asked for a plan, call SwitchMode to \"plan\" FIRST, then call CreatePlan. The plan is persisted per-conversation and automatically injected into every future turn so both you and the user can see the progress. Pass `todos` as an array of short action items; use AddTodo later to append more, UpdateTodo to mark them complete.",
+      "name": "CreatePlan",
+      "parameters": {
+        "properties": {
+          "name": {
+            "description": "Short plan title (e.g. \"Migrate auth to OAuth\").",
+            "type": "string"
+          },
+          "overview": {
+            "description": "One-paragraph summary of the approach and end state.",
+            "type": "string"
+          },
+          "todos": {
+            "description": "Initial TODO items, in execution order. Each must be a short imperative string.",
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["name", "overview", "todos"],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Append one TODO item to the active plan. Use as the task scope grows. If no plan exists yet, call CreatePlan first. Calling this automatically refreshes the Plan panel in the IDE so the user sees the new item immediately.",
+      "name": "AddTodo",
+      "parameters": {
+        "properties": {
+          "content": {
+            "description": "Short imperative TODO (e.g. \"Wire OAuth callback route\").",
+            "type": "string"
+          }
+        },
+        "required": ["content"],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Update a TODO's status on the active plan. Call this as work progresses so the plan view stays accurate and later turns know what's left. Use `id` from the plan listing, or `content` for a prefix match on the TODO text. Calling this automatically refreshes the Plan panel in the IDE so the user sees the checkbox flip immediately.",
+      "name": "UpdateTodo",
+      "parameters": {
+        "properties": {
+          "id": {
+            "description": "TODO id from the active plan listing.",
+            "type": "string"
+          },
+          "content": {
+            "description": "Alternative: prefix match on TODO content when id is unknown.",
+            "type": "string"
+          },
+          "status": {
+            "description": "New status for the TODO.",
+            "enum": ["pending", "in_progress", "completed", "cancelled"],
+            "type": "string"
+          }
+        },
+        "required": ["status"],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Switches the current interaction mode. Use this when the user's intent no longer fits the active mode — e.g. they asked a question in Agent mode (switch to Ask), or they want a plan (switch to Plan), or they're investigating a bug (switch to Debug). The target_mode_id must be one of: \"agent\", \"ask\", \"plan\", \"debug\". Always include a short explanation so the user sees why you switched. After switching, continue the task in the new mode without re-asking the user to confirm.",
+      "name": "SwitchMode",
+      "parameters": {
+        "properties": {
+          "target_mode_id": {
+            "description": "The mode to switch to. One of: agent, ask, plan, debug.",
+            "enum": ["agent", "ask", "plan", "debug"],
+            "type": "string"
+          },
+          "explanation": {
+            "description": "A short one-sentence reason for the switch, shown to the user.",
+            "type": "string"
+          }
+        },
+        "required": ["target_mode_id", "explanation"],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Lists MCP RESOURCES advertised by a server (not tools — tools are listed separately as mcp_* functions in your tool catalog). Resources are server-hosted documents (files, manifests, templates) the model can fetch via FetchMcpResource.\n\nIMPORTANT: An empty resource list does NOT mean the MCP server is disconnected. Many servers (e.g. context7) expose only tools, not resources. To use such a server, call its mcp_* tool functions directly — do NOT conclude the server is offline.\n\nUse `server` to scope the listing to one server; omit it to list across all connected servers.",
+      "name": "ListMcpResources",
+      "parameters": {
+        "properties": {
+          "server": {
+            "description": "Optional MCP server identifier. If omitted, resources from all servers are listed.",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Reads a specific resource from an MCP server, identified by server name and resource URI. Optionally, set downloadPath (relative to the workspace) to save the resource to disk; when set, the resource will be downloaded and not returned to the model.",
+      "name": "FetchMcpResource",
+      "parameters": {
+        "properties": {
+          "downloadPath": {
+            "description": "Optional relative path in the workspace to save the resource to. When set, the resource is written to disk and is not returned to the model.",
+            "type": "string"
+          },
+          "server": {
+            "description": "The MCP server identifier",
+            "type": "string"
+          },
+          "uri": {
+            "description": "The resource URI to read",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server",
+          "uri"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Call an MCP tool by server identifier and tool name with arbitrary JSON arguments. IMPORTANT: Always read the tool's schema/descriptor BEFORE calling to ensure correct parameters.\n\nExample:\n{\n  \"server\": \"my-mcp-server\",\n  \"toolName\": \"search\",\n  \"arguments\": { \"query\": \"example\", \"limit\": 10 }\n}",
+      "name": "CallMcpTool",
+      "parameters": {
+        "properties": {
+          "arguments": {
+            "description": "Arguments to pass to the MCP tool, as described in the tool descriptor.",
+            "type": "object"
+          },
+          "server": {
+            "description": "Identifier of the MCP server hosting the tool.",
+            "type": "string"
+          },
+          "toolName": {
+            "description": "Name of the MCP tool to invoke.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server",
+          "toolName"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  }
+]

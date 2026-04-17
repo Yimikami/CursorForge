@@ -1,0 +1,594 @@
+syntax = "proto3";
+
+package anyrun.v1;
+
+import "google/protobuf/empty.proto";
+
+option go_package = "cursorforge/internal/protocodec/gen/anyrun/v1;anyrunv1";
+
+// Copied from: local:anyrun.v1.BlobStorageFormat (var: Ra)
+enum BlobStorageFormat {
+  BLOB_STORAGE_FORMAT_LEGACY_UNSPECIFIED = 0;
+  BLOB_STORAGE_FORMAT_V1 = 1;
+}
+
+// Copied from: local:anyrun.v1.Build (var: qje, class: Oce)
+message Build {
+  string dockerfile = 1;
+  string context = 2;
+}
+
+// Copied from: local:anyrun.v1.BuildStatusLine (var: qes, class: ple)
+message BuildStatusLine {
+  uint32 stream_id = 1;
+  string timestamp = 2;
+  string content = 3;
+}
+
+// Copied from: local:anyrun.v1.BuildStepStarted (var: Bes, class: fle)
+message BuildStepStarted {
+  uint32 stream_id = 1;
+  uint32 step = 2;
+  uint32 total_steps = 3;
+  string command = 4;
+}
+
+// Copied from: local:anyrun.v1.CloneCompleted (var: Hes, class: Ele)
+message CloneCompleted {
+  ClonePurpose purpose = 1;
+}
+
+// Copied from: local:anyrun.v1.ClonePurpose (var: Sl)
+enum ClonePurpose {
+  CLONE_PURPOSE_UNSPECIFIED = 0;
+  CLONE_PURPOSE_DOCKER_BUILD = 1;
+  CLONE_PURPOSE_WORKSPACE_SETUP = 2;
+}
+
+// Copied from: local:anyrun.v1.CloneStarted (var: Ges, class: _le)
+message CloneStarted {
+  ClonePurpose purpose = 1;
+}
+
+// Copied from: local:anyrun.v1.DaemonPod (var: qPs, class: ale)
+message DaemonPod {
+  PodPortState ports = 1;
+  PodStatus status = 2;
+  optional uint32 internal_proxy_port = 3;
+  optional DefaultPortConfig default_port_config = 4;
+}
+
+// Copied from: local:anyrun.v1.DefaultPortConfig (var: $Be, class: Rce)
+message DefaultPortConfig {
+  oneof authentication {
+    google.protobuf.Empty open = 3;
+    google.protobuf.Empty token = 4;
+  }
+  oneof visibility {
+    google.protobuf.Empty public = 1;
+    google.protobuf.Empty private = 2;
+  }
+}
+
+// Copied from: local:anyrun.v1.DevContainerConfig (var: fes, class: Ace)
+message DevContainerConfig {
+  optional bytes prepare_commands_tag = 19;
+  repeated DevContainerExecCommand prepare_commands = 8;
+  optional bytes install_commands_tag = 20;
+  repeated DevContainerExecCommand install_commands = 9;
+  optional bytes verify_commands_tag = 24;
+  repeated DevContainerExecCommand verify_commands = 25;
+  optional bytes start_commands_tag = 21;
+  repeated DevContainerExecCommand start_commands = 10;
+  repeated PortDefinition ports = 11;
+  optional DefaultPortConfig default_port_config = 26;
+  optional string user = 12;
+  repeated DevContainerEnv env = 13;
+  string shell = 14;
+  optional bool privileged = 17;
+  optional uint64 checkpoint_threshold_ms = 23;
+  oneof image {
+    string registry_reference = 4;
+    string snapshot_id = 5;
+    Build build = 6;
+    ExternalSnapshot external_snapshot = 27;
+  }
+  oneof source {
+    GitRepoSourceReference git = 1;
+    TarRepoSourceReference tar = 2;
+    LocalDirectoryReference local = 15;
+    TarGzipUrlSourceReference tar_gzip_url = 16;
+    NoopSourceReference noop = 22;
+  }
+  oneof workspace {
+    string workspace_path = 7;
+    string workdir_relative_path = 18;
+  }
+}
+
+// Copied from: local:anyrun.v1.DevContainerEnv (var: des, class: Dce)
+message DevContainerEnv {
+  string name = 1;
+  oneof value {
+    string inline = 2;
+    string encrypted = 3;
+  }
+}
+
+// Copied from: local:anyrun.v1.DevContainerExecCommand (var: Fo, class: Pce)
+message DevContainerExecCommand {
+  string name = 1;
+  optional string user = 2;
+  string command = 3;
+  bool is_system = 4;
+  optional string cache_key = 5;
+}
+
+// Copied from: local:anyrun.v1.DevContainerSpec (var: NPs, class: qce)
+message DevContainerSpec {
+  string name = 5;
+  optional string platform = 23;
+  optional uint64 deletion_timestamp = 6;
+  optional uint64 hibernation_timestamp = 14;
+  map<string, string> pod_labels = 7;
+  map<string, string> node_labels = 8;
+  ResourceRequests requests = 9;
+  ResourceRequests hibernated_requests = 16;
+  ResourceLimits limits = 10;
+  optional bool cache = 13;
+  optional bool enable_base_container_cache = 20;
+  optional bool enable_checkpoint_read = 18;
+  optional bool enable_checkpoint_write = 19;
+  BlobStorageFormat blob_storage_format = 17;
+  optional string cache_tag = 15;
+  string workload = 21;
+  DevContainerConfig config = 12;
+  optional bool persist_config = 22;
+  optional uint32 expected_fork_count = 24;
+  bool two_pass_download = 25;
+}
+
+// Copied from: local:anyrun.v1.DiskUsage (var: xPs, class: Jce)
+message DiskUsage {
+  uint64 bytes_used = 1;
+  uint64 bytes_total = 2;
+}
+
+// Copied from: local:anyrun.v1.ExternalSnapshot (var: hes, class: Fce)
+message ExternalSnapshot {
+  string snapshot_id = 1;
+  string presigned_url = 2;
+  ImageMetadata image_metadata = 3;
+  BlobStorageFormat blob_storage_format = 4;
+}
+
+// Copied from: local:anyrun.v1.FeatureExitCode (var: Aje, class: hle)
+message FeatureExitCode {
+  string feature_id = 1;
+  int64 exit_code = 2;
+}
+
+// Copied from: local:anyrun.v1.FeatureOutput (var: $Pe, class: dle)
+message FeatureOutput {
+  string feature_id = 1;
+  string output = 2;
+}
+
+// Copied from: local:anyrun.v1.GitRepoSourceReference (var: oes, class: bce)
+message GitRepoSourceReference {
+  string cache_uri = 1;
+  string checkout_uri = 2;
+  bytes commit_hash = 3;
+  string http_proxy = 5;
+}
+
+// Copied from: local:anyrun.v1.HydrationProgress (var: Nes, class: ule)
+message HydrationProgress {
+  uint64 transferred = 1;
+  uint64 total = 2;
+}
+
+// Copied from: local:anyrun.v1.ImageMetadata (var: Lje, class: _ce)
+message ImageMetadata {
+  optional string user = 1;
+  map<string, string> env = 2;
+  optional string working_dir = 3;
+  optional string arch = 4;
+}
+
+// Copied from: local:anyrun.v1.ImagePullCompleted (var: Ues, class: Tle)
+message ImagePullCompleted {
+  string image_name = 1;
+  string pull_id = 2;
+}
+
+// Copied from: local:anyrun.v1.ImagePullLayerUpdate (var: Aes, class: wle)
+message ImagePullLayerUpdate {
+  string image_name = 1;
+  string pull_id = 2;
+  string layer_id = 3;
+  oneof status {
+    bool pulling_fs_layer = 4;
+    bool waiting = 5;
+    bool verifying_checksum = 6;
+    bool download_complete = 7;
+    bool pull_complete = 8;
+    ProgressDetail downloading = 9;
+    ProgressDetail extracting = 10;
+    string other = 11;
+  }
+}
+
+// Copied from: local:anyrun.v1.ImagePullStarted (var: Fes, class: vle)
+message ImagePullStarted {
+  string image_name = 1;
+  string pull_id = 2;
+}
+
+// Copied from: local:anyrun.v1.ImagePullStatusUpdate (var: Oes, class: Sle)
+message ImagePullStatusUpdate {
+  string image_name = 1;
+  string pull_id = 2;
+  string status = 3;
+}
+
+// Copied from: local:anyrun.v1.InstallCommand (var: Mes, class: kle)
+message InstallCommand {
+  string name = 1;
+  string command = 2;
+  optional string user = 3;
+  bool is_system = 4;
+}
+
+// Copied from: local:anyrun.v1.InternalBuildMessage (var: Des, class: gle)
+message InternalBuildMessage {
+  uint32 stream_id = 1;
+  string content = 2;
+}
+
+// Copied from: local:anyrun.v1.LocalDirectoryReference (var: les, class: Nce)
+message LocalDirectoryReference {
+  string path = 1;
+}
+
+// Copied from: local:anyrun.v1.NoopSourceReference (var: mes, class: Bce)
+message NoopSourceReference {
+}
+
+// Copied from: local:anyrun.v1.PersistedDevContainerConfig (var: Dje, class: zce)
+message PersistedDevContainerConfig {
+  repeated DevContainerExecCommand prepare_commands = 10;
+  repeated DevContainerExecCommand install_commands = 11;
+  repeated DevContainerExecCommand verify_commands = 19;
+  repeated DevContainerExecCommand start_commands = 12;
+  repeated PersistedEnvVar env = 13;
+  repeated PortDefinition ports = 14;
+  string shell = 15;
+  optional string user = 16;
+  optional bool privileged = 17;
+  oneof image {
+    string registry_reference = 5;
+    Build build = 6;
+    string snapshot_id = 7;
+    PersistedExternalSnapshot external_snapshot = 20;
+  }
+  oneof source {
+    PersistedGitRepoSource git = 1;
+    PersistedTarRepoSource tar = 2;
+    PersistedLocalRepoSource local = 3;
+    PersistedTarGzipUrlSource tar_gzip_url = 4;
+    PersistedNoopSource noop = 18;
+  }
+  oneof workspace {
+    string workspace_path = 8;
+    string workdir_relative_path = 9;
+  }
+}
+
+// Copied from: local:anyrun.v1.PersistedEnvVar (var: Tes, class: Vce)
+message PersistedEnvVar {
+  string name = 1;
+  string value = 2;
+}
+
+// Copied from: local:anyrun.v1.PersistedExternalSnapshot (var: Ses, class: Wce)
+message PersistedExternalSnapshot {
+  string snapshot_id = 1;
+}
+
+// Copied from: local:anyrun.v1.PersistedGitRepoSource (var: pes, class: Uce)
+message PersistedGitRepoSource {
+  string cache_uri = 1;
+  bytes commit_hash = 2;
+}
+
+// Copied from: local:anyrun.v1.PersistedLocalRepoSource (var: ves, class: Gce)
+message PersistedLocalRepoSource {
+  string path = 1;
+}
+
+// Copied from: local:anyrun.v1.PersistedNoopSource (var: yes, class: $ce)
+message PersistedNoopSource {
+}
+
+// Copied from: local:anyrun.v1.PersistedTarGzipUrlSource (var: wes, class: Hce)
+message PersistedTarGzipUrlSource {
+  string name = 1;
+}
+
+// Copied from: local:anyrun.v1.PersistedTarRepoSource (var: ges, class: Mce)
+message PersistedTarRepoSource {
+  string name = 1;
+}
+
+// Copied from: local:anyrun.v1.Pod (var: HPe, class: Qce)
+message Pod {
+  string tenant_id = 1;
+  string pod_id = 2;
+  uint32 resource_version = 9;
+  string name = 10;
+  map<string, string> labels = 11;
+  uint64 creation_timestamp = 12;
+  optional uint64 deletion_timestamp = 13;
+  optional uint64 hibernation_timestamp = 14;
+  ResourceRequests resource_requests = 4;
+  ResourceRequests hibernated_resource_requests = 20;
+  optional ResourceLimits resource_limits = 17;
+  optional bool cache = 18;
+  optional string cache_tag = 19;
+  string workload = 21;
+  string node_id = 5;
+  optional bool hibernated = 15;
+  string network_token = 7;
+  PodStatus status = 8;
+  PodPorts ports = 6;
+  optional uint32 internal_proxy_port = 22;
+  optional PersistedDevContainerConfig config = 16;
+  optional uint64 modified_timestamp = 23;
+}
+
+// Copied from: local:anyrun.v1.PodCollection (var: Res, class: Zce)
+message PodCollection {
+  repeated Pod items = 1;
+  optional string next_cursor = 2;
+}
+
+// Copied from: local:anyrun.v1.PodCreatingPhase (var: nw)
+enum PodCreatingPhase {
+  POD_CREATING_PHASE_UNSPECIFIED = 0;
+  POD_CREATING_PHASE_CLONE = 1;
+  POD_CREATING_PHASE_BUILD = 2;
+  POD_CREATING_PHASE_POST_CREATE = 3;
+  POD_CREATING_PHASE_UPDATE_CONTENT = 4;
+  POD_CREATING_PHASE_POST_START = 5;
+}
+
+// Copied from: local:anyrun.v1.PodCreatingStatus (var: Pes, class: sle)
+message PodCreatingStatus {
+  PodCreatingPhase phase = 1;
+}
+
+// Copied from: local:anyrun.v1.PodErrorEvent (var: Les, class: mle)
+message PodErrorEvent {
+  string error_message = 1;
+}
+
+// Copied from: local:anyrun.v1.PodEvent (var: Fje, class: cle)
+message PodEvent {
+  uint64 creation_timestamp = 49;
+  oneof payload {
+    PodErrorEvent error = 26;
+    string debug_event = 1;
+    google.protobuf.Empty hydration_started = 43;
+    HydrationProgress hydration_progress = 44;
+    google.protobuf.Empty hydration_completed = 45;
+    google.protobuf.Empty clone_started = 31;
+    google.protobuf.Empty clone_completed = 32;
+    CloneStarted clone_started_v2 = 51;
+    CloneCompleted clone_completed_v2 = 52;
+    google.protobuf.Empty checkout_started = 33;
+    google.protobuf.Empty checkout_completed = 34;
+    string build_started = 2;
+    string build_status_message = 3;
+    BuildStepStarted build_step_started = 27;
+    BuildStatusLine build_status_line = 28;
+    InternalBuildMessage internal_build_message = 29;
+    int32 build_exit_code = 30;
+    string prepare_stdout = 14;
+    string prepare_stderr = 15;
+    int64 prepare_exit_code = 16;
+    InstallCommand install_command = 50;
+    string install_stdout = 17;
+    string install_stderr = 18;
+    int64 install_exit_code = 19;
+    string verify_stdout = 46;
+    string verify_stderr = 47;
+    int64 verify_exit_code = 48;
+    string start_stdout = 6;
+    string start_stderr = 7;
+    int64 start_exit_code = 8;
+    FeatureOutput extension_install_stdout = 20;
+    FeatureOutput extension_install_stderr = 21;
+    FeatureExitCode extension_install_exit_code = 22;
+    google.protobuf.Empty snapshot_started = 35;
+    google.protobuf.Empty snapshot_completed = 36;
+    google.protobuf.Empty creation_completed = 9;
+    string post_start_stdout = 10;
+    string post_start_stderr = 11;
+    int64 post_start_exit_code = 12;
+    FeatureOutput extension_start_stdout = 23;
+    FeatureOutput extension_start_stderr = 24;
+    FeatureExitCode extension_start_exit_code = 25;
+    google.protobuf.Empty startup_completed = 13;
+    ImagePullStarted image_pull_started = 37;
+    ImagePullLayerUpdate image_pull_layer_update = 38;
+    ImagePullStatusUpdate image_pull_status_update = 39;
+    ImagePullCompleted image_pull_completed = 40;
+    PodIdentity blocked_repo_state = 41;
+    google.protobuf.Empty acquired_repo_state = 42;
+    google.protobuf.Empty private_worker_ready = 53;
+    WaitingForWorkerStatus waiting_for_worker = 54;
+  }
+}
+
+// Copied from: local:anyrun.v1.PodFailedStatus (var: Ies, class: ile)
+message PodFailedStatus {
+  string reason = 1;
+}
+
+// Copied from: local:anyrun.v1.PodFilter (var: BPs, class: tle)
+message PodFilter {
+  optional string pod_id = 1;
+  map<string, string> labels = 2;
+}
+
+// Copied from: local:anyrun.v1.PodIdentity (var: bes, class: ole)
+message PodIdentity {
+  string tenant_id = 1;
+  string pod_id = 2;
+}
+
+// Copied from: local:anyrun.v1.PodPortState (var: Ees, class: Kce)
+message PodPortState {
+  repeated PortState ports = 1;
+}
+
+// Copied from: local:anyrun.v1.PodPorts (var: kes, class: jce)
+message PodPorts {
+  repeated PortDefinition ports = 1;
+  optional DefaultPortConfig default_port_config = 2;
+}
+
+// Copied from: local:anyrun.v1.PodRunningStatus (var: Ces, class: nle)
+message PodRunningStatus {
+  optional uint64 missed_heartbeat_deadline = 1;
+}
+
+// Copied from: local:anyrun.v1.PodStatus (var: GPe, class: Xce)
+message PodStatus {
+  oneof status {
+    PodCreatingStatus creating = 1;
+    PodRunningStatus running = 2;
+    PodFailedStatus failed = 3;
+    PodTerminatedStatus terminated = 4;
+  }
+}
+
+// Copied from: local:anyrun.v1.PodTerminatedStatus (var: Jes, class: rle)
+message PodTerminatedStatus {
+  string reason = 1;
+  optional uint32 exit_code = 2;
+}
+
+// Copied from: local:anyrun.v1.PodUpdate (var: LPs, class: ele)
+message PodUpdate {
+  optional string event_id = 1;
+  oneof update {
+    PodCollection initial = 2;
+    Pod added = 3;
+    Pod updated = 4;
+    Pod removed = 5;
+  }
+}
+
+// Copied from: local:anyrun.v1.PortDefinition (var: HBe, class: Ece)
+message PortDefinition {
+  string name = 1;
+  uint32 port = 2;
+  oneof authentication {
+    google.protobuf.Empty open = 5;
+    google.protobuf.Empty token = 6;
+  }
+  oneof visibility {
+    google.protobuf.Empty public = 3;
+    google.protobuf.Empty private = 4;
+  }
+}
+
+// Copied from: local:anyrun.v1.PortState (var: _es, class: Yce)
+message PortState {
+  string port_name = 1;
+  uint32 container_port = 2;
+  uint32 host_port = 3;
+  oneof authentication {
+    google.protobuf.Empty open = 6;
+    google.protobuf.Empty token = 7;
+  }
+  oneof visibility {
+    google.protobuf.Empty public = 4;
+    google.protobuf.Empty private = 5;
+  }
+}
+
+// Copied from: local:anyrun.v1.ProgressDetail (var: Oje, class: yle)
+message ProgressDetail {
+  uint64 current = 1;
+  uint64 total = 2;
+}
+
+// Copied from: local:anyrun.v1.ResourceLimits (var: Bje, class: Ice)
+message ResourceLimits {
+  optional uint64 cpu_mcores = 1;
+  optional uint64 memory_mb = 2;
+  optional uint64 disk_mb = 3;
+  optional uint64 swap_mb = 4;
+}
+
+// Copied from: local:anyrun.v1.ResourceRequests (var: MPe, class: Cce)
+message ResourceRequests {
+  uint64 cpu_mcores = 1;
+  uint64 memory_mb = 2;
+  uint64 disk_mb = 3;
+}
+
+// Copied from: local:anyrun.v1.Snapshot (var: $es, class: Rle)
+message Snapshot {
+  string snapshot_id = 1;
+  uint32 resource_version = 2;
+  string name = 3;
+  map<string, string> labels = 4;
+  uint64 creation_timestamp = 5;
+  optional uint64 deletion_timestamp = 6;
+  optional uint64 deletion_duration_ms = 12;
+  optional uint64 archive_timestamp = 14;
+  optional uint64 archive_duration_ms = 15;
+  string tenant_id = 7;
+  string pod_id = 8;
+  optional PersistedDevContainerConfig pod_config = 13;
+  SnapshotState state = 9;
+  ImageMetadata image_metadata = 10;
+  BlobStorageFormat blob_storage_format = 11;
+}
+
+// Copied from: local:anyrun.v1.SnapshotCollection (var: DPs, class: Ple)
+message SnapshotCollection {
+  repeated Snapshot items = 1;
+  optional string next_cursor = 2;
+}
+
+// Copied from: local:anyrun.v1.SnapshotState (var: Pa)
+enum SnapshotState {
+  SNAPSHOT_STATE_UNSPECIFIED = 0;
+  SNAPSHOT_STATE_CREATING = 1;
+  SNAPSHOT_STATE_READY = 2;
+  SNAPSHOT_STATE_FAILED = 3;
+}
+
+// Copied from: local:anyrun.v1.TarGzipUrlSourceReference (var: ues, class: Lce)
+message TarGzipUrlSourceReference {
+  string name = 1;
+  string url = 2;
+}
+
+// Copied from: local:anyrun.v1.TarRepoSourceReference (var: ces, class: xce)
+message TarRepoSourceReference {
+  string name = 1;
+  bytes tar_archive = 2;
+}
+
+// Copied from: local:anyrun.v1.WaitingForWorkerStatus (var: xes, class: lle)
+message WaitingForWorkerStatus {
+  int32 retry_count = 1;
+  int32 max_retries = 2;
+}
+

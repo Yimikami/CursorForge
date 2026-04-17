@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Name=CursorForge
+GenericName=BYOK gateway for Cursor IDE
+Comment=Local MITM proxy & BYOK gateway for Cursor IDE
+Exec=/usr/local/bin/cursorforge %u
+Terminal=false
+Type=Application
+Icon=cursorforge
+Categories=Development;Utility;
+StartupWMClass=cursorforge
