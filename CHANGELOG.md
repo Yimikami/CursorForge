@@ -14,6 +14,28 @@ PR / commit summary.
 
 -
 
+## [0.2.0] - 2026-04-17
+
+### Added
+
+- **macOS native system proxy support** — `networksetup` CLI integration for HTTP/HTTPS proxy configuration per network service, with crash-safe backup/restore to `sysproxy-backup.json`. Mirrors the Windows registry implementation.
+- **"Quit or minimize to tray?" dialog** — First close shows a modal asking whether to fully quit (stop proxy, revert settings) or minimize to system tray (keep proxy running). Includes "Remember my choice" checkbox persisted to `config.json`.
+- **Dynamic OS label in footer** — Footer now shows the actual platform ("Windows build", "macOS build", "Linux build") via `System.IsWindows/IsMac/IsLinux` instead of a hardcoded string.
+
+### Changed
+
+- **Linux system proxy is now a no-op** — Cursor's `settings.json` already routes through our MITM listener via `ApplyCursorTweaks`. Forcing system-wide proxy on Linux is fragile (GNOME/KDE/Sway each wire it differently) and can strand users; leaving it as a no-op means BYOK works reliably with zero risk of clobbering network config.
+- **Close-behaviour preference persisted** — `UserConfig.CloseAction` field (`"" | "quit" | "tray"`) remembers the user's choice across sessions. When set, the close button immediately performs the chosen action without showing the modal.
+- **Backend callbacks for frontend dialog** — `ProxyService` now exposes `SetQuitCallback`, `SetHideCallback`, `RequestQuit`, `RequestHide`, `GetCloseAction`, and `SetCloseAction` methods so the Vue modal can drive the Wails window/app lifecycle cleanly.
+
+### Fixed
+
+- **WinINET proxy restore after crash** — `sysproxy-backup.json` sidecar now stores the pre-override state of `ProxyEnable`, `ProxyServer`, and `ProxyOverride`. `EnableSystemProxy` only snapshots when no backup exists (crash-safe), and `DisableSystemProxy` restores the exact original state including deletion of values that didn't exist before.
+- **Cursor settings.json backup is idempotent** — `ApplyCursorTweaks` now checks whether `settings-backup.json` exists before overwriting it, preventing crash-restart cycles from permanently corrupting the user's pristine Cursor settings.
+- **Multi-chat session isolation** — `sessionStore` now tracks `droppedIDConv` (request_id → conversation_id) so retry/reconnect RunSSE requests rejoin their original conversation instead of cross-wiring to the most recent chat. The `lastConvSafeFallback` guard refuses the fallback when more than one conversation is active to avoid silent data corruption.
+- **Unique tool-call sequence numbers** — Tool execution now uses a process-wide `atomic.Uint32` counter instead of the previous `(round*10 + len(result.ToolCalls) + 1)` formula, which gave the same sequence number to every tool call in a single round and caused `seqAlias` / `shellAccum` collisions.
+- **Partial-startup warnings preserved** — `ProxyService.StartProxy` now accumulates non-fatal startup errors (e.g., failed Cursor settings.json tweak, SQLite auth inject) into a single "Partial start:" message instead of clearing `LastError` after a successful MITM start, so the UI can surface the partial failures.
+
 ## [0.1.0] - 2026-04-17
 
 Initial public release.

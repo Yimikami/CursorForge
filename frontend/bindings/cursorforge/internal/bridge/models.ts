@@ -284,6 +284,13 @@ export class UserConfig {
     "baseURL": string;
     "modelAdapters": ModelAdapterConfig[];
 
+    /**
+     * CloseAction remembers what the user picked in the "Quit or minimize
+     * to tray?" dialog. Empty = never answered, show the dialog on close.
+     * "quit" = shut the proxy down and exit. "tray" = hide to system tray.
+     */
+    "closeAction"?: string;
+
     /** Creates a new UserConfig instance. */
     constructor($$source: Partial<UserConfig> = {}) {
         if (!("baseURL" in $$source)) {

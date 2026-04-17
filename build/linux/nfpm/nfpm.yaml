@@ -3,26 +3,26 @@
 #
 # The lines below are called `modelines`. See `:help modeline`
 
-name: "cursorforge.exe"
+name: "cursorforge"
 arch: ${GOARCH}
 platform: "linux"
-version: "0.1.0"
+version: "0.2.0"
 section: "default"
 priority: "extra"
 maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
-description: "A cursorforge application"
-vendor: "My Company"
+description: "Local MITM proxy & BYOK gateway for Cursor IDE"
+vendor: "CursorForge"
 homepage: "https://wails.io"
 license: "MIT"
 release: "1"
 
 contents:
-  - src: "./bin/cursorforge.exe"
-    dst: "/usr/local/bin/cursorforge.exe"
+  - src: "./bin/cursorforge"
+    dst: "/usr/local/bin/cursorforge"
   - src: "./build/appicon.png"
-    dst: "/usr/share/icons/hicolor/128x128/apps/cursorforge.exe.png"
-  - src: "./build/linux/cursorforge.exe.desktop"
-    dst: "/usr/share/applications/cursorforge.exe.desktop"
+    dst: "/usr/share/icons/hicolor/128x128/apps/cursorforge.png"
+  - src: "./build/linux/cursorforge.desktop"
+    dst: "/usr/share/applications/cursorforge.desktop"
 
 # Default dependencies for Debian 12/Ubuntu 22.04+ with WebKit 4.1
 depends:

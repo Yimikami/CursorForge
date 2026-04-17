@@ -26,6 +26,10 @@ var trayIcon []byte
 
 func init() {
 	application.RegisterEvent[bool]("proxyState")
+	// Fired by main.go's WindowClosing hook when the user clicks the close
+	// button AND hasn't pinned a preference yet. The frontend listens for
+	// it and renders the "Quit or minimize to tray?" modal.
+	application.RegisterEvent[bool]("closeRequested")
 }
 
 func main() {
@@ -63,10 +67,43 @@ func main() {
 		URL:              "/",
 	})
 
-	// Clicking the window close button hides to tray instead of quitting.
+	// Clicking the window close button routes through the user's saved
+	// preference. First-run = unset → cancel the close and ask the frontend
+	// to show the "Quit or minimize to tray?" modal. After the user picks
+	// once (with "Don't ask again" checked), GetCloseAction returns the
+	// pinned value and we short-circuit straight to the chosen action.
 	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		switch proxySvc.GetCloseAction() {
+		case "tray":
+			window.Hide()
+			e.Cancel()
+		case "quit":
+			// Tear down the proxy before letting the window close so the
+			// system proxy / Cursor settings get reverted cleanly. Let the
+			// close event proceed — app.Quit ensures the process exits
+			// even on macOS where a closed window wouldn't otherwise.
+			go func() {
+				proxySvc.Shutdown()
+				app.Quit()
+			}()
+		default:
+			// No pinned preference yet. Keep the window visible while the
+			// frontend modal is open so the user can see what they're
+			// choosing; the modal's buttons then call RequestQuit or
+			// RequestHide via the Wails bindings.
+			e.Cancel()
+			app.Event.Emit("closeRequested", true)
+		}
+	})
+
+	// Frontend modal callbacks. Both run in a Wails goroutine (see
+	// RequestQuit / RequestHide), so window operations below are safe.
+	proxySvc.SetHideCallback(func() {
 		window.Hide()
-		e.Cancel()
+	})
+	proxySvc.SetQuitCallback(func() {
+		proxySvc.Shutdown()
+		app.Quit()
 	})
 
 	// ---------------- System tray ----------------

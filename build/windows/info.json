@@ -1,16 +1,14 @@
 {
 	"fixed": {
-		"file_version": "0.1.0.0"
+		"file_version": "0.2.0"
 	},
 	"info": {
-		"0409": {
-			"ProductVersion": "0.1.0",
-			"ProductName": "CursorForge",
-			"FileDescription": "CursorForge — Local MITM proxy & BYOK gateway for Cursor IDE",
+		"0000": {
+			"ProductVersion": "0.2.0",
 			"CompanyName": "CursorForge",
+			"FileDescription": "Local MITM proxy & BYOK gateway for Cursor IDE",
 			"LegalCopyright": "© 2026 CursorForge",
-			"OriginalFilename": "cursorforge.exe",
-			"InternalName": "CursorForge",
+			"ProductName": "CursorForge",
 			"Comments": "Intercepts Cursor IDE traffic and routes model calls through user-supplied API keys."
 		}
 	}

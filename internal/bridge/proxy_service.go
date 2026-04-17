@@ -36,6 +36,12 @@ type ProxyService struct {
 	cfgDir          string
 	onStateChange   func(running bool)
 	gatewayAdapters func() []relay.AdapterInfo
+	// quitCb / hideCb are wired up by main.go so the frontend's close
+	// dialog can drive the window without needing direct access to the
+	// Wails application handle. Both run in a goroutine so the Wails RPC
+	// that triggered them can return cleanly before we tear the app down.
+	quitCb func()
+	hideCb func()
 }
 
 // adapterListFor reads the user config and returns the BYOK adapter list
@@ -69,6 +75,83 @@ func (s *ProxyService) SetStateCallback(cb func(running bool)) {
 	s.mu.Lock()
 	s.onStateChange = cb
 	s.mu.Unlock()
+}
+
+// SetQuitCallback registers the function main.go uses to fully tear the
+// app down (Stop proxy, remove tray icon, quit the Wails application).
+// Invoked from RequestQuit so the frontend close dialog can exit cleanly.
+func (s *ProxyService) SetQuitCallback(cb func()) {
+	s.mu.Lock()
+	s.quitCb = cb
+	s.mu.Unlock()
+}
+
+// SetHideCallback registers the function main.go uses to hide the main
+// window to the system tray (keeping the proxy and tray icon alive).
+func (s *ProxyService) SetHideCallback(cb func()) {
+	s.mu.Lock()
+	s.hideCb = cb
+	s.mu.Unlock()
+}
+
+// GetCloseAction returns the persisted close-behaviour preference
+// ("" = ask, "quit", "tray"). Unbound errors from config.json are swallowed
+// — a missing or malformed config just maps to "ask the user".
+func (s *ProxyService) GetCloseAction() string {
+	cfg, err := readConfig(s.cfgDir)
+	if err != nil {
+		return ""
+	}
+	switch cfg.CloseAction {
+	case "quit", "tray":
+		return cfg.CloseAction
+	default:
+		return ""
+	}
+}
+
+// SetCloseAction persists the user's choice from the close dialog. "quit"
+// and "tray" are the only meaningful values; anything else is normalised
+// to "" (which makes the dialog reappear on the next close — a safe reset).
+func (s *ProxyService) SetCloseAction(action string) error {
+	cfg, err := readConfig(s.cfgDir)
+	if err != nil {
+		return err
+	}
+	switch action {
+	case "quit", "tray":
+		cfg.CloseAction = action
+	default:
+		cfg.CloseAction = ""
+	}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(s.cfgDir, "config.json"), b, 0o600)
+}
+
+// RequestQuit triggers the registered quit callback. Called from the
+// frontend close dialog's "Quit" button. Runs the callback on its own
+// goroutine so the Wails RPC returns before the app actually tears down.
+func (s *ProxyService) RequestQuit() {
+	s.mu.RLock()
+	cb := s.quitCb
+	s.mu.RUnlock()
+	if cb != nil {
+		go cb()
+	}
+}
+
+// RequestHide triggers the registered hide-to-tray callback. Called from
+// the frontend close dialog's "Minimize to tray" button.
+func (s *ProxyService) RequestHide() {
+	s.mu.RLock()
+	cb := s.hideCb
+	s.mu.RUnlock()
+	if cb != nil {
+		go cb()
+	}
 }
 
 func (s *ProxyService) fireState() {

@@ -30,6 +30,10 @@ type ModelAdapterConfig struct {
 type UserConfig struct {
 	BaseURL       string               `json:"baseURL"`
 	ModelAdapters []ModelAdapterConfig `json:"modelAdapters"`
+	// CloseAction remembers what the user picked in the "Quit or minimize
+	// to tray?" dialog. Empty = never answered, show the dialog on close.
+	// "quit" = shut the proxy down and exit. "tray" = hide to system tray.
+	CloseAction string `json:"closeAction,omitempty"`
 }
 
 // UsageStats is the aggregate token-use snapshot the Stats tab in the Wails

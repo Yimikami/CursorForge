@@ -23,6 +23,15 @@ export function ExportCAPEM(): $CancellablePromise<string> {
     return $Call.ByID(3979319461);
 }
 
+/**
+ * GetCloseAction returns the persisted close-behaviour preference
+ * ("" = ask, "quit", "tray"). Unbound errors from config.json are swallowed
+ * — a missing or malformed config just maps to "ask the user".
+ */
+export function GetCloseAction(): $CancellablePromise<string> {
+    return $Call.ByID(4246659013);
+}
+
 export function GetCursorSettingsStatus(): $CancellablePromise<$models.CursorSettingsStatus> {
     return $Call.ByID(294038120).then(($result: any) => {
         return $$createType0($result);
@@ -62,6 +71,23 @@ export function OpenSettingsFolder(): $CancellablePromise<void> {
     return $Call.ByID(1745916518);
 }
 
+/**
+ * RequestHide triggers the registered hide-to-tray callback. Called from
+ * the frontend close dialog's "Minimize to tray" button.
+ */
+export function RequestHide(): $CancellablePromise<void> {
+    return $Call.ByID(2986251096);
+}
+
+/**
+ * RequestQuit triggers the registered quit callback. Called from the
+ * frontend close dialog's "Quit" button. Runs the callback on its own
+ * goroutine so the Wails RPC returns before the app actually tears down.
+ */
+export function RequestQuit(): $CancellablePromise<void> {
+    return $Call.ByID(3981400551);
+}
+
 export function RevertCursorTweaks(): $CancellablePromise<$models.CursorSettingsStatus> {
     return $Call.ByID(3063858870).then(($result: any) => {
         return $$createType0($result);
@@ -76,6 +102,32 @@ export function SetBaseURL(url: string): $CancellablePromise<$models.ProxyState>
     return $Call.ByID(3562908193, url).then(($result: any) => {
         return $$createType1($result);
     });
+}
+
+/**
+ * SetCloseAction persists the user's choice from the close dialog. "quit"
+ * and "tray" are the only meaningful values; anything else is normalised
+ * to "" (which makes the dialog reappear on the next close — a safe reset).
+ */
+export function SetCloseAction(action: string): $CancellablePromise<void> {
+    return $Call.ByID(1124812073, action);
+}
+
+/**
+ * SetHideCallback registers the function main.go uses to hide the main
+ * window to the system tray (keeping the proxy and tray icon alive).
+ */
+export function SetHideCallback(cb: any): $CancellablePromise<void> {
+    return $Call.ByID(2449416262, cb);
+}
+
+/**
+ * SetQuitCallback registers the function main.go uses to fully tear the
+ * app down (Stop proxy, remove tray icon, quit the Wails application).
+ * Invoked from RequestQuit so the frontend close dialog can exit cleanly.
+ */
+export function SetQuitCallback(cb: any): $CancellablePromise<void> {
+    return $Call.ByID(1385398785, cb);
 }
 
 export function SetStateCallback(cb: any): $CancellablePromise<void> {

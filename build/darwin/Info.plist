@@ -1,33 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-    <dict>
-        <key>CFBundlePackageType</key>
-            <string>APPL</string>
-        <key>CFBundleName</key>
-            <string>CursorForge</string>
-        <key>CFBundleDisplayName</key>
-            <string>CursorForge</string>
-        <key>CFBundleExecutable</key>
-            <string>cursorforge</string>
-        <key>CFBundleIdentifier</key>
-            <string>dev.yimikami.cursorforge</string>
-        <key>CFBundleVersion</key>
-            <string>0.1.0</string>
-        <key>CFBundleGetInfoString</key>
-            <string>Local MITM proxy &amp; BYOK gateway for Cursor IDE</string>
-        <key>CFBundleShortVersionString</key>
-            <string>0.1.0</string>
-        <key>CFBundleIconFile</key>
-            <string>icons</string>
-        <key>CFBundleIconName</key>
-            <string>appicon</string>
-        <key>LSMinimumSystemVersion</key>
-            <string>10.15.0</string>
-        <key>NSHighResolutionCapable</key>
-            <string>true</string>
-        <key>NSHumanReadableCopyright</key>
-            <string>© 2026 CursorForge</string>
-        <key>LSUIElement</key>
-            <false/>
-    </dict>
+	<dict>
+		<key>CFBundleDisplayName</key>
+		<string>CursorForge</string>
+		<key>CFBundleExecutable</key>
+		<string>cursorforge</string>
+		<key>CFBundleGetInfoString</key>
+		<string>Intercepts Cursor IDE traffic and routes model calls through user-supplied API keys.</string>
+		<key>CFBundleIconFile</key>
+		<string>icons</string>
+		<key>CFBundleIconName</key>
+		<string>appicon</string>
+		<key>CFBundleIdentifier</key>
+		<string>dev.yimikami.cursorforge</string>
+		<key>CFBundleName</key>
+		<string>CursorForge</string>
+		<key>CFBundlePackageType</key>
+		<string>APPL</string>
+		<key>CFBundleShortVersionString</key>
+		<string>0.2.0</string>
+		<key>CFBundleVersion</key>
+		<string>0.2.0</string>
+		<key>LSMinimumSystemVersion</key>
+		<string>10.15.0</string>
+		<key>LSUIElement</key>
+		<false/>
+		<key>NSHighResolutionCapable</key>
+		<string>true</string>
+		<key>NSHumanReadableCopyright</key>
+		<string>© 2026 CursorForge</string>
+	</dict>
 </plist>

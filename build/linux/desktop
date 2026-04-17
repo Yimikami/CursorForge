@@ -1,11 +1,13 @@
 [Desktop Entry]
 Version=1.0
 Name=CursorForge
-GenericName=BYOK gateway for Cursor IDE
 Comment=Local MITM proxy & BYOK gateway for Cursor IDE
+# The Exec line includes %u to pass the URL to the application
 Exec=/usr/local/bin/cursorforge %u
 Terminal=false
 Type=Application
 Icon=cursorforge
-Categories=Development;Utility;
+Categories=Utility;
 StartupWMClass=cursorforge
+
+ 
